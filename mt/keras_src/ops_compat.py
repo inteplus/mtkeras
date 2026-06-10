@@ -31,7 +31,13 @@ else:
         def reduce_sum(self, x, axis=None, keepdims=False):
             return tf.reduce_sum(x, axis=axis, keepdims=keepdims)
 
+        def sum(self, x, axis=None, keepdims=False):
+            return tf.reduce_sum(x, axis=axis, keepdims=keepdims)
+
         def reduce_mean(self, x, axis=None, keepdims=False):
+            return tf.reduce_mean(x, axis=axis, keepdims=keepdims)
+
+        def mean(self, x, axis=None, keepdims=False):
             return tf.reduce_mean(x, axis=axis, keepdims=keepdims)
 
         def reduce_prod(self, x, axis=None, keepdims=False):

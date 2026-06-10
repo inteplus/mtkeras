@@ -1,5 +1,4 @@
 from .. import layers as _layers
-from mt.base import logger
 
 for _x, _y in _layers.__dict__.items():
     if _x.startswith("_"):
@@ -10,21 +9,13 @@ __doc__ = _layers.__doc__
 from .identical import *
 from .floor import *
 from .var_regularizer import *
+from .simple_mha import *
+from .image_sizing import *
 from .counter import Counter
 from .normed_conv2d import NormedConv2D
 from .soft_bend import SoftBend
 from .transformer_encoder import MTTransformerEncoder
 from .utils import *
-
-try:
-    from .image_sizing import *
-except Exception as e:
-    logger.warn(f"Unable to import mt.tkeras_src.layers_src.image_sizing: {e}")
-
-try:
-    from .simple_mha import *
-except Exception as e:
-    logger.warn(f"Unable to import mt.tkeras_src.layers_src.simple_mha: {e}")
 
 
 __api__ = [

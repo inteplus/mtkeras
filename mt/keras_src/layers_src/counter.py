@@ -1,4 +1,4 @@
-from keras import ops
+import tensorflow as tf
 from .. import layers, initializers
 
 
@@ -10,13 +10,13 @@ class Counter(layers.Layer):
         self.counter = self.add_weight(
             name="counter", shape=(1,), initializer=initializer
         )
-        self.incrementor = ops.array([1.0], dtype=self.counter.dtype)
+        self.incrementor = tf.constant([1.0])
 
     def call(self, x, training: bool = False):
         if training:
             self.counter.assign_add(self.incrementor)
-        y = ops.reshape(x, (-1,))[:1]
-        y = ops.stop_gradient(y) * 0.0
+        y = tf.reshape(x, [-1])[:1]
+        y = tf.stop_gradient(y) * 0.0
         return self.counter + y
 
     call.__doc__ = layers.Layer.call.__doc__

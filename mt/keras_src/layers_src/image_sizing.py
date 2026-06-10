@@ -1,6 +1,6 @@
 """Module involves upsizing and downsizing images in each axis individually using convolutions of residuals."""
 
-from keras import ops as tf
+import tensorflow as tf
 from mt import tp, np
 from .. import layers, initializers, regularizers, constraints
 
@@ -215,7 +215,7 @@ class Upsize2D(DUCLayer):
         )
 
         # add average
-        x += x_avg[:, :, :, None, None, :]
+        x += x_avg[:, :, :, tf.newaxis, tf.newaxis, :]
 
         # make a new grid
         x = tf.transpose(x, perm=[0, 1, 3, 2, 4, 5])
@@ -757,7 +757,7 @@ class Upsize2D_V2(DUCLayer):
         # add average
         zeros = tf.zeros([B, H, W, R])
         x_avg = tf.concat([x_avg, zeros], axis=3)  # expanded average
-        x += x_avg[:, :, :, None, None, :]
+        x += x_avg[:, :, :, tf.newaxis, tf.newaxis, :]
 
         # make a new grid
         x = tf.transpose(x, perm=[0, 1, 3, 2, 4, 5])

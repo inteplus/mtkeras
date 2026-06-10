@@ -1,3 +1,4 @@
 # mtkeras
+Keras namespace packages that build on mttf.
 
-Dummy package to assert that Keras 3 and PyTorch have been installed and expose `mt.tkeras` and `mt.tkeras_src`.
+This repo provides `mt.keras` and `mt.keras_src` while depending on `mttf` for the shared `mt.tf` package.

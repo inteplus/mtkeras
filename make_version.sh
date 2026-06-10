@@ -23,7 +23,7 @@ echo "Updating ${VERSION_FILEPATH}..."
 echo "${FULL_VERSION}" > ${VERSION_FILEPATH}
 
 # version.py
-VERSION_DIRPATH=${SCRIPT_PATH}/mt/tkeras
+VERSION_DIRPATH=${SCRIPT_PATH}/mt/keras
 VERSION_FILEPATH=${VERSION_DIRPATH}/version.py
 
 mkdir -p ${VERSION_DIRPATH}

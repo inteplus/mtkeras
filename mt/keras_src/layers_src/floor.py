@@ -1,9 +1,13 @@
-from keras import ops
+import tensorflow as tf
 from .. import layers
 
 
+@tf.custom_gradient
 def floor(x):
-    return x + ops.stop_gradient(ops.floor(x) - x)
+    def grad(upstream):  # identity
+        return upstream
+
+    return tf.math.floor(x), grad
 
 
 class Floor(layers.Layer):

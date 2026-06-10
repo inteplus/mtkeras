@@ -1,5 +1,4 @@
 from .. import layers
-from keras import ops
 
 
 class SoftBend(layers.Layer):
@@ -25,7 +24,9 @@ class SoftBend(layers.Layer):
         self.alpha = alpha
 
     def call(self, x):
-        return ops.power(ops.absolute(x), self.alpha) * ops.tanh(x)
+        from tensorflow.math import pow, abs, tanh
+
+        return pow(abs(x), self.alpha) * tanh(x)
 
     call.__doc__ = layers.Layer.call.__doc__
 

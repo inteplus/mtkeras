@@ -1,4 +1,4 @@
-from keras import ops
+import tensorflow as tf
 
 from mt import tp
 
@@ -17,11 +17,11 @@ class VarianceRegularizer(layers.Layer):
         self.l_axes = l_axes
 
     def call(self, x):
-        mean = ops.mean(x, axis=self.l_axes, keepdims=True)
+        mean = tf.reduce_mean(x, axis=self.l_axes, keepdims=True)
         err = x - mean
         esq = err * err
-        var = ops.mean(esq, axis=self.l_axes)
-        sum_var = ops.sum(var)
+        var = tf.reduce_mean(esq, axis=self.l_axes)
+        sum_var = tf.reduce_sum(var)
         self.add_loss(self.rate * sum_var)
         return x
 

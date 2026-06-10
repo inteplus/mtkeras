@@ -32,59 +32,80 @@ a model of submodels that is theoretically equivalent to the original MobileNetV
 no pre-trained weights exist.
 """
 
+import importlib
+
 from mt import tp, tfc
 from .. import keras_source
 
-if keras_source == "tf_keras":
-    from tf_keras.src.applications.mobilenet_v3 import (
-        relu,
-        hard_swish,
-        _depth,
-        _inverted_res_block,
+
+def _import_mobilenet_v3_module(candidates):
+    last_error = None
+    for module_name in candidates:
+        try:
+            return importlib.import_module(module_name)
+        except Exception as error:
+            last_error = error
+    raise ImportError(
+        "Unable to import MobileNetV3 implementation from any known location. "
+        f"Tried: {candidates}. Last error: {last_error}"
     )
-    from tf_keras import backend, models, layers
+
+
+if keras_source == "keras3":
+    keras_pkg = importlib.import_module("keras")
+    backend = keras_pkg.backend
+    models = keras_pkg.models
+    layers = keras_pkg.layers
+
+    mobilenet_v3_mod = _import_mobilenet_v3_module(
+        [
+            "keras.src.applications.mobilenet_v3",
+            "keras.applications.mobilenet_v3",
+        ]
+    )
 elif keras_source == "keras":
-    try:
-        from keras.applications.mobilenet_v3 import (
-            relu,
-            hard_swish,
-            _depth,
-            _inverted_res_block,
-        )
-    except ImportError:
-        from keras.src.applications.mobilenet_v3 import (
-            relu,
-            hard_swish,
-            _depth,
-            _inverted_res_block,
-        )
-    from keras import backend, models
+    keras_pkg = importlib.import_module("keras")
+    backend = keras_pkg.backend
+    models = keras_pkg.models
+    layers = keras_pkg.layers
 
-    try:
-        from keras.layers import VersionAwareLayers
-
-        layers = VersionAwareLayers()
-    except ImportError:
-        from keras import layers
-elif keras_source == "tensorflow.keras":
-    from tensorflow.keras.src.applications.mobilenet_v3 import (
-        relu,
-        hard_swish,
-        _depth,
-        _inverted_res_block,
+    mobilenet_v3_mod = _import_mobilenet_v3_module(
+        [
+            "keras.applications.mobilenet_v3",
+            "keras.src.applications.mobilenet_v3",
+        ]
     )
-    from tensorflow.python.keras import backend, models
+elif keras_source == "tf_keras":
+    keras_pkg = importlib.import_module("tf_keras")
+    backend = keras_pkg.backend
+    models = keras_pkg.models
+    layers = keras_pkg.layers
 
-    try:
-        from tensorflow.keras.layers import VersionAwareLayers
+    mobilenet_v3_mod = _import_mobilenet_v3_module(
+        [
+            "tf_keras.src.applications.mobilenet_v3",
+            "tf_keras.applications.mobilenet_v3",
+        ]
+    )
+elif keras_source == "tensorflow.keras":
+    keras_pkg = importlib.import_module("tensorflow.keras")
+    backend = keras_pkg.backend
+    models = keras_pkg.models
+    layers = keras_pkg.layers
 
-        layers = VersionAwareLayers()
-    except ImportError:
-        from tensorflow.keras import layers
+    mobilenet_v3_mod = _import_mobilenet_v3_module(
+        [
+            "tensorflow.keras.src.applications.mobilenet_v3",
+            "tensorflow.keras.applications.mobilenet_v3",
+        ]
+    )
 else:
     raise ImportError(f"Unknown value '{keras_source}' for variable 'keras_source'.")
 
-from tensorflow.python.platform import tf_logging as logging
+relu = mobilenet_v3_mod.relu
+hard_swish = mobilenet_v3_mod.hard_swish
+_depth = mobilenet_v3_mod._depth
+_inverted_res_block = mobilenet_v3_mod._inverted_res_block
 
 
 def MobileNetV3Input(
@@ -259,7 +280,12 @@ def MobileNetV3Mixer(
             activation = hard_swish
             se_ratio = 0.25
 
-        last_conv_ch = _depth(backend.int_shape(x)[channel_axis] * 6)
+        input_channels = x.shape[channel_axis]
+        if input_channels is None:
+            raise tfc.ModelSyntaxError(
+                "Could not infer channel dimension for MobileNetV3 mixer input."
+            )
+        last_conv_ch = _depth(int(input_channels) * 6)
 
         # if the width multiplier is greater than 1 we
         # increase the number of output channels

@@ -55,7 +55,7 @@ def _detect_keras_3():
         kr_ver = Version(keras.__version__)
         if kr_ver >= Version("3.0"):
             # Keras 3 is available
-            backend = KERAS_BACKEND_ENV or os.environ.get("KERAS_BACKEND", "tensorflow")
+            backend = KERAS_BACKEND_ENV or os.environ.get("KERAS_BACKEND", "torch")
 
             # Validate backend is installed
             if backend == "torch":

@@ -9,8 +9,6 @@ to the `MobileViT ICLR2022 paper <https://arxiv.org/abs/2110.02178>`_ for more d
 The paper authors' code is `here <https://github.com/apple/ml-cvnets>`_.
 """
 
-
-import tensorflow as tf
 from mt import tp, tfc
 
 from .mobilenet_v3_split import (
@@ -20,11 +18,12 @@ from .mobilenet_v3_split import (
     models,
     layers,
 )
+from .. import activations as keras_activations
 
 
 def conv_block(x, filters=16, kernel_size=3, strides=2):
     conv_layer = layers.Conv2D(
-        filters, kernel_size, strides=strides, activation=tf.nn.swish, padding="same"
+        filters, kernel_size, strides=strides, activation="swish", padding="same"
     )
     return conv_layer(x)
 
@@ -50,7 +49,7 @@ def inverted_residual_block(
         3,  # kernel_size
         strides,  # stride
         0,  # se_ratio
-        tf.nn.swish,  # activation
+        "swish",  # activation
         block_id,
     )
 
@@ -63,7 +62,7 @@ def inverted_residual_block(
 
 def mlp(x, hidden_units, dropout_rate):
     for units in hidden_units:
-        x = layers.Dense(units, activation=tf.nn.swish)(x)
+        x = layers.Dense(units, activation="swish")(x)
         x = layers.Dropout(dropout_rate)(x)
     return x
 

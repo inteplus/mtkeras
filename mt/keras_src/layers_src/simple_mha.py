@@ -13,14 +13,35 @@
 # limitations under the License.
 # ==============================================================================
 """A simplified version of keras-based attention layer."""
+
 # pylint: disable=g-classes-have-attributes
 
 import math
-import tensorflow as tf
-from tensorflow.python.util.tf_export import keras_export
 
 from mt import tp, tfc
 from .. import layers, initializers, regularizers, constraints, activations
+from ..ops_compat import ops
+from ..base import keras_source
+
+# Try to use keras_export if available (TensorFlow Keras)
+try:
+    if keras_source != "keras3":
+        from tensorflow.python.util.tf_export import keras_export
+    else:
+        # For Keras 3, just define a no-op decorator
+        def keras_export(*args, **kwargs):
+            def decorator(f):
+                return f
+
+            return decorator
+
+except ImportError:
+    # Fallback if not available
+    def keras_export(*args, **kwargs):
+        def decorator(f):
+            return f
+
+        return decorator
 
 
 @keras_export("keras.layers.SimpleMHA2D")
@@ -148,20 +169,20 @@ class SimpleMHA2D(layers.Layer):
 
         Parameters
         ----------
-        key_value : tensorflow.Tensor
+        key_value : Tensor
             input `Tensor` of shape `(B, H, W, KV)`.
         training : bool
             Whether the layer should behave in training mode or in inference mode.
 
         Returns
         -------
-        attention_output : tensorflow.Tensor
+        attention_output : Tensor
             The result of the computation, of shape `(B, N, V)`, where `N` is the number of heads
             and `V` is the value dimensionality.
         """
 
-        bs_shape = tf.shape(key_value)[0:1]
-        hw_shape = tf.reduce_prod(tf.shape(key_value)[1:3], axis=0, keepdims=True)
+        bs_shape = ops.shape(key_value)[0:1]
+        hw_shape = ops.reduce_prod(ops.shape(key_value)[1:3], axis=0, keepdims=True)
 
         #   N = `num_attention_heads`
         #   K = `key_dim`
@@ -172,29 +193,29 @@ class SimpleMHA2D(layers.Layer):
 
         # `key` = [B, H*W, N, K]
         key = self.layer_key_proj(key_value, training=training)
-        key_shape = tf.concat(
+        key_shape = ops.concatenate(
             [bs_shape, hw_shape, [self._num_heads, self._key_dim]], axis=0
         )
-        key = tf.reshape(key, key_shape)
+        key = ops.reshape(key, key_shape)
 
         # `value` = [B, H*W, N, V]
         value = self.layer_value_proj(key_value, training=training)
-        value_shape = tf.concat(
+        value_shape = ops.concatenate(
             [bs_shape, hw_shape, [self._num_heads, self._value_dim]], axis=0
         )
-        value = tf.reshape(value, value_shape)
+        value = ops.reshape(value, value_shape)
 
         # `dot_prod` = [B, H*W, N]
-        dot_prod = tf.reduce_sum(self.tensor_query * key, axis=-1)
+        dot_prod = ops.reduce_sum(self.tensor_query * key, axis=-1)
 
         # `softmax` = [B, H*W, N, 1]
         softmax = self.layer_softmax(dot_prod)
         if self._dropout > 0:
             softmax = self.layer_dropout(softmax, training=training)
-        softmax = tf.expand_dims(softmax, axis=-1)
+        softmax = ops.expand_dims(softmax, axis=-1)
 
         # `attention_output` = [B, N, V]
-        attention_output = tf.reduce_sum(softmax * value, axis=1)
+        attention_output = ops.reduce_sum(softmax * value, axis=1)
 
         return attention_output
 
@@ -374,7 +395,7 @@ class MHAPool2D(layers.Layer):
 
         Parameters
         ----------
-        blob : tensorflow.Tensor
+        blob : Tensor
             input `Tensor` of shape `(B, H, W, D)`.
         training : bool
             Whether the layer should behave in training mode or in inference mode.
@@ -383,18 +404,18 @@ class MHAPool2D(layers.Layer):
 
         Returns
         -------
-        attention_output : tensorflow.Tensor
+        attention_output : Tensor
             The result of the computation, of shape `(B, H2, W2, N*V)`, where `H2` and `W2`
             represent the downsampled resolution, `N` is the number of heads and `V` is the value
             dimensionality.
-        attention_scores : tensorflow.Tensor
+        attention_scores : Tensor
             Multi-headed attention weights, of shape `(B, H2, W2, H*W, N)`. Only available if
             `return_attention_scores` is True.
         """
 
-        blob_shape = tf.shape(blob)
+        blob_shape = ops.shape(blob)
         bs_shape = blob_shape[0:1]  # [B]
-        hw_shape = tf.reduce_prod(blob_shape[1:3], axis=0, keepdims=True)  # [H*W]
+        hw_shape = ops.reduce_prod(blob_shape[1:3], axis=0, keepdims=True)  # [H*W]
 
         #   N = `num_attention_heads`
         #   K = `key_dim`
@@ -407,29 +428,29 @@ class MHAPool2D(layers.Layer):
 
         # `query` = [B, H2, W2, N, K]
         query = self.layer_query_proj(query, training=training)
-        query_head_shape = tf.shape(query)[0:3]  # [B, H2, W2]
-        query_shape = tf.concat(
+        query_head_shape = ops.shape(query)[0:3]  # [B, H2, W2]
+        query_shape = ops.concatenate(
             [query_head_shape, [self._num_heads, self._key_dim]], axis=0
         )
-        query = tf.reshape(query, query_shape)
+        query = ops.reshape(query, query_shape)
 
         # `key` = [B, H*W, N, K]
         key = self.layer_key_proj(blob, training=training)
-        key_shape = tf.concat(
+        key_shape = ops.concatenate(
             [bs_shape, hw_shape, [self._num_heads, self._key_dim]], axis=0
         )
-        key = tf.reshape(key, key_shape)
+        key = ops.reshape(key, key_shape)
 
         # `value` = [B, H*W, N, V]
         value = self.layer_value_proj(blob, training=training)
-        value_shape = tf.concat(
+        value_shape = ops.concatenate(
             [bs_shape, hw_shape, [self._num_heads, self._value_dim]], axis=0
         )
-        value = tf.reshape(value, value_shape)
+        value = ops.reshape(value, value_shape)
 
         # `prod` = [B, H2, W2, H*W, N]
         query *= 1.0 / math.sqrt(float(self._key_dim))
-        prod = tf.einsum("bhwnk,bink->bhwin", query, key)
+        prod = ops.einsum("bhwnk,bink->bhwin", query, key)
 
         # `attention_scores` = [B, H2, W2, H*W, N]
         attention_scores = self.layer_softmax(prod)
@@ -439,13 +460,13 @@ class MHAPool2D(layers.Layer):
             dropout = attention_scores
 
         # `attention_output` = [B, H2, W2, N, V]
-        attention_output = tf.einsum("bhwin,binv->bhwnv", dropout, value)
+        attention_output = ops.einsum("bhwin,binv->bhwnv", dropout, value)
 
         # `output`
-        output_shape = tf.concat(
+        output_shape = ops.concatenate(
             [query_head_shape, [self._num_heads * self._value_dim]], axis=0
         )
-        output = tf.reshape(attention_output, output_shape)
+        output = ops.reshape(attention_output, output_shape)
 
         if return_attention_scores:
             return output, attention_scores

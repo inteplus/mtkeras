@@ -1,5 +1,5 @@
-import tensorflow as tf
 from .. import layers, initializers
+from ..ops_compat import ops
 
 
 class Counter(layers.Layer):
@@ -10,13 +10,13 @@ class Counter(layers.Layer):
         self.counter = self.add_weight(
             name="counter", shape=(1,), initializer=initializer
         )
-        self.incrementor = tf.constant([1.0])
+        self.incrementor = ops.constant([1.0])
 
     def call(self, x, training: bool = False):
         if training:
             self.counter.assign_add(self.incrementor)
-        y = tf.reshape(x, [-1])[:1]
-        y = tf.stop_gradient(y) * 0.0
+        y = ops.reshape(x, [-1])[:1]
+        y = ops.stop_gradient(y) * 0.0
         return self.counter + y
 
     call.__doc__ = layers.Layer.call.__doc__

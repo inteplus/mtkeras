@@ -1,4 +1,5 @@
 from .. import constraints
+from ..ops_compat import ops
 
 
 class CenterAround(constraints.Constraint):
@@ -8,11 +9,9 @@ class CenterAround(constraints.Constraint):
         self.ref_value = ref_value
 
     def __call__(self, w):
-        import tensorflow as tf
-
-        mean = tf.reduce_mean(w, axis=-1, keepdims=True)
+        mean = ops.reduce_mean(w, axis=-1, keepdims=True)
         ref_mean = mean - self.ref_value
-        ref_mean = tf.expand_dims(ref_mean, -1)
+        ref_mean = ops.expand_dims(ref_mean, -1)
         return w - ref_mean
 
     def get_config(self):

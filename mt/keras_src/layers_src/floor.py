@@ -1,17 +1,18 @@
-import tensorflow as tf
 from .. import layers
+from ..grad_compat import custom_gradient
+from ..ops_compat import ops
 
 
-@tf.custom_gradient
+@custom_gradient
 def floor(x):
     def grad(upstream):  # identity
         return upstream
 
-    return tf.math.floor(x), grad
+    return ops.floor(x), grad
 
 
 class Floor(layers.Layer):
-    """TensorFlow floor but gradient is identity."""
+    """Backend-agnostic floor with identity gradient."""
 
     def call(self, x):
         return floor(x)

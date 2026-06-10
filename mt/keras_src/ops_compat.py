@@ -14,7 +14,24 @@ from .base import keras_source
 
 if keras_source == "keras3":
     # For Keras 3, use the backend-agnostic API
-    import keras.ops as ops_impl
+    import keras.ops as _keras_ops
+
+    class _Keras3OpsWrapper:
+        """Expose TensorFlow-style reduction aliases on top of keras.ops."""
+
+        def __getattr__(self, name):
+            return getattr(_keras_ops, name)
+
+        def reduce_sum(self, x, axis=None, keepdims=False):
+            return _keras_ops.sum(x, axis=axis, keepdims=keepdims)
+
+        def reduce_mean(self, x, axis=None, keepdims=False):
+            return _keras_ops.mean(x, axis=axis, keepdims=keepdims)
+
+        def reduce_prod(self, x, axis=None, keepdims=False):
+            return _keras_ops.prod(x, axis=axis, keepdims=keepdims)
+
+    ops_impl = _Keras3OpsWrapper()
 else:
     # For Keras 2, create a wrapper around TensorFlow operations
     import tensorflow as tf

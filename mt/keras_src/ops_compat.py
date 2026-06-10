@@ -31,6 +31,9 @@ if keras_source == "keras3":
         def reduce_prod(self, x, axis=None, keepdims=False):
             return _keras_ops.prod(x, axis=axis, keepdims=keepdims)
 
+        def transpose(self, x, perm=None):
+            return _keras_ops.transpose(x, axes=perm)
+
     ops_impl = _Keras3OpsWrapper()
 else:
     # For Keras 2, create a wrapper around TensorFlow operations

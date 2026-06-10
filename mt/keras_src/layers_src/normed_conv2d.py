@@ -10,12 +10,12 @@ class NormedConv2D(layers.Layer):
     .. code-block:: python
 
        x = input_tensor
-       count = tf.keras_layers.Counter()(x)
-       x = tf.keras.layers.Conv2D(activation=None, use_bias=False, ...)(x)
-       y = tf.keras.layers.LayerNormalization(axis=-1, scale=True, ...)(x)
+       count = keras_layers.Counter()(x)
+       x = keras.layers.Conv2D(activation=None, use_bias=False, ...)(x)
+       y = keras.layers.LayerNormalization(axis=-1, scale=True, ...)(x)
        alpha = growth_rate / (1.0 + count)
        x = alpha * x + (1 - alpha) * y
-       z = tf.keras.layers.Activation(...)(y)
+       z = keras.layers.Activation(...)(y)
        return z
 
     It operates as a Conv2D layer whose kernel responses are normalized before being activated. The
@@ -26,20 +26,20 @@ class NormedConv2D(layers.Layer):
     ----------
     filters : int
         Integer, the dimensionality of the output space (i.e. the number of output filters in the
-        convolution). Passed as-is to :class:`tensorflow.keras.layers.Conv2D`.
+        convolution). Passed as-is to :class:`keras.layers.Conv2D`.
     kernel_size : int or tuple or list
         An integer or tuple/list of 2 integers, specifying the height and width of the 2D
         convolution window. Can be a single integer to specify the same value for all spatial
-        dimensions. Passed as-is to :class:`tensorflow.keras.layers.Conv2D`.
+        dimensions. Passed as-is to :class:`keras.layers.Conv2D`.
     strides : int or tuple or list
         An integer or tuple/list of 2 integers, specifying the strides of the convolution along the
         height and width. Can be a single integer to specify the same value for all spatial
         dimensions. Specifying any ``stride value != 1 is`` incompatible with specifying any
-        ``dilation_rate value != 1``. Passed as-is to :class:`tensorflow.keras.layers.Conv2D`.
+        ``dilation_rate value != 1``. Passed as-is to :class:`keras.layers.Conv2D`.
     padding : {"valid", "same"}
         'valid' means no padding. 'same' results in padding with zeros evenly to the left/right
         or up/down of the input. When ``padding="same"`` and ``strides=1``, the output has the same
-        size as the input. Passed as-is to :class:`tensorflow.keras.layers.Conv2D`.
+        size as the input. Passed as-is to :class:`keras.layers.Conv2D`.
     data_format : {"channel_last", "channel_first", None}
         A string, one of 'channels_last' (default) or 'channels_first'. The ordering of the
         dimensions in the inputs. channels_last corresponds to inputs with shape
@@ -47,56 +47,56 @@ class NormedConv2D(layers.Layer):
         shape ``(batch_size, channels, height, width)``. It defaults to the image_data_format value
         found in your Keras config file at ``~/.keras/keras.json``. If you never set it, then it
         will be 'channels_last'. Note that the 'channels_first' format is currently not
-        supported by TensorFlow on CPU. Passed as-is to :class:`tensorflow.keras.layers.Conv2D`.
+        supported by TensorFlow on CPU. Passed as-is to :class:`keras.layers.Conv2D`.
     dilation_rate : int or tuple or list
         an integer or tuple/list of 2 integers, specifying the dilation rate to use for dilated
         convolution. Can be a single integer to specify the same value for all spatial dimensions.
         Currently, specifying any ``dilation_rate value != 1`` is incompatible with specifying any
-        ``stride value != 1``. Passed as-is to :class:`tensorflow.keras.layers.Conv2D`.
+        ``stride value != 1``. Passed as-is to :class:`keras.layers.Conv2D`.
     groups : int
         A positive integer specifying the number of groups in which the input is split along the
         channel axis. Each group is convolved separately with filters / groups filters. The output
         is the concatenation of all the groups results along the channel axis. Input channels and
         filters must both be divisible by groups. Passed as-is to
-        :class:`tensorflow.keras.layers.Conv2D`.
+        :class:`keras.layers.Conv2D`.
     kernel_initializer : str or object
         Initializer for the kernel weights matrix (see keras.initializers). Defaults to
-        'glorot_uniform'. Passed as-is to :class:`tensorflow.keras.layers.Conv2D`.
+        'glorot_uniform'. Passed as-is to :class:`keras.layers.Conv2D`.
     kernel_regularizer : str or object
         Regularizer function applied to the kernel weights matrix (see keras.regularizers).  Passed
-        as-is to :class:`tensorflow.keras.layers.Conv2D`.
+        as-is to :class:`keras.layers.Conv2D`.
     kernel_constraint : str or object
         Constraint function applied to the kernel matrix (see keras.constraints). Passed as-is to
-        :class:`tensorflow.keras.layers.Conv2D`.
+        :class:`keras.layers.Conv2D`.
     epsilon : float
         Small float added to variance to avoid dividing by zero. Defaults to ``1e-3``. Passed as-is
-        to :class:`tensorflow.keras.layers.LayerNormalization`.
+        to :class:`keras.layers.LayerNormalization`.
     center : float
         If True, add offset of beta to normalized tensor. If False, beta is ignored. Defaults to
-        True. Passed as-is to :class:`tensorflow.keras.layers.LayerNormalization`.
+        True. Passed as-is to :class:`keras.layers.LayerNormalization`.
     gamma_initializer : str or object
         Initializer for the gamma weight. Defaults to ones. Passed as-is to
-        :class:`tensorflow.keras.layers.LayerNormalization`.
+        :class:`keras.layers.LayerNormalization`.
     gamma_regularizer : str or object
         Optional regularizer for the gamma weight. None by default. Passed as-is to
-        :class:`tensorflow.keras.layers.LayerNormalization`.
+        :class:`keras.layers.LayerNormalization`.
     gamma_constraint : str or object
         Optional constraint for the gamma weight. None by default. Passed as-is to
-        :class:`tensorflow.keras.layers.LayerNormalization`.
+        :class:`keras.layers.LayerNormalization`.
     beta_initializer : str or object
         Initializer for the beta weight. Defaults to zeros. Passed as-is to
-        :class:`tensorflow.keras.layers.LayerNormalization`.
+        :class:`keras.layers.LayerNormalization`.
     beta_regularizer : str or object
         Optional regularizer for the beta weight. None by default. Passed as-is to
-        :class:`tensorflow.keras.layers.LayerNormalization`.
+        :class:`keras.layers.LayerNormalization`.
     beta_constraint: str or object
         Optional constraint for the beta weight. None by default. Passed as-is to
-        :class:`tensorflow.keras.layers.LayerNormalization`.
+        :class:`keras.layers.LayerNormalization`.
     growth_rate : float
         Growth rate for switching from Conv2D output to the normed output. Defaults to 1.0.
     activation : str or object
         Activation function to use. If you don't specify anything, no activation is applied (see
-        keras.activations).  Passed as-is to :class:`tensorflow.keras.layers.Activation`.
+        keras.activations).  Passed as-is to :class:`keras.layers.Activation`.
 
     Input shape
     -----------

@@ -32,10 +32,8 @@ a model of submodels that is theoretically equivalent to the original MobileNetV
 no pre-trained weights exist.
 """
 
-
 from mt import tp, tfc
 from .. import keras_source
-
 
 if keras_source == "tf_keras":
     from tf_keras.src.applications.mobilenet_v3 import (
@@ -462,7 +460,7 @@ def MobileNetV3Split(
 
     Returns
     -------
-    tensorflow.keras.Model
+    keras.Model
         the output MobileNetV3 model split into 5 submodels
     """
 

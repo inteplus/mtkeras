@@ -1,8 +1,8 @@
 """Module involves upsizing and downsizing images in each axis individually using convolutions of residuals."""
 
-import tensorflow as tf
 from mt import tp, np
 from .. import layers, initializers, regularizers, constraints
+from ..ops_compat import ops
 
 
 def mirror_all_weights(l_weights: list) -> list:
@@ -201,8 +201,8 @@ class Upsize2D(DUCLayer):
         x = self.projection_layer(x, training=training)
 
         # reshape
-        input_shape = tf.shape(x)
-        x = tf.reshape(
+        input_shape = ops.shape(x)
+        x = ops.reshape(
             x,
             [
                 input_shape[0],
@@ -215,11 +215,11 @@ class Upsize2D(DUCLayer):
         )
 
         # add average
-        x += x_avg[:, :, :, tf.newaxis, tf.newaxis, :]
+        x += x_avg[:, :, :, None, None, :]
 
         # make a new grid
-        x = tf.transpose(x, perm=[0, 1, 3, 2, 4, 5])
-        x = tf.reshape(
+        x = ops.transpose(x, perm=[0, 1, 3, 2, 4, 5])
+        x = ops.reshape(
             x,
             [
                 input_shape[0],
@@ -357,8 +357,8 @@ class Downsize2D(DUCLayer):
 
     def call(self, x, training: bool = False):
         # reshape
-        input_shape = tf.shape(x)
-        x = tf.reshape(
+        input_shape = ops.shape(x)
+        x = ops.reshape(
             x,
             [
                 input_shape[0],
@@ -371,13 +371,13 @@ class Downsize2D(DUCLayer):
         )
 
         # extract average
-        x_avg = tf.reduce_mean(x, axis=[2, 4], keepdims=True)
+        x_avg = ops.mean(x, axis=[2, 4], keepdims=True)
         x -= x_avg  # residuals
         x_avg = x_avg[:, :, 0, :, 0, :]  # means
 
         # make a new grid
-        x = tf.transpose(x, perm=[0, 1, 3, 2, 4, 5])
-        x = tf.reshape(
+        x = ops.transpose(x, perm=[0, 1, 3, 2, 4, 5])
+        x = ops.reshape(
             x,
             [
                 input_shape[0],
@@ -387,7 +387,7 @@ class Downsize2D(DUCLayer):
             ],
         )
 
-        x = tf.concat([x_avg, x], axis=3)
+        x = ops.concatenate([x_avg, x], axis=3)
 
         if self._expansion_factor > 1:  # expand
             x = self.prenorm1_layer(x, training=training)
@@ -398,7 +398,7 @@ class Downsize2D(DUCLayer):
         x = self.projection_layer(x, training=training)
 
         # form output
-        x = tf.concat([x_avg, x], axis=3)
+        x = ops.concatenate([x_avg, x], axis=3)
 
         return x
 
@@ -551,23 +551,23 @@ class Downsize2D_V2(DUCLayer):
         # reshape
         I = self._img_dim
         R = self._res_dim
-        input_shape = tf.shape(x)
+        input_shape = ops.shape(x)
         B = input_shape[0]
         H = input_shape[1] // 2
         W = input_shape[2] // 2
-        x = tf.reshape(x, [B, H, 2, W, 2, I + R])
+        x = ops.reshape(x, [B, H, 2, W, 2, I + R])
 
         # extract average over the image dimensions
-        x_avg = tf.reduce_mean(x[:, :, :, :, :, :I], axis=[2, 4], keepdims=True)
-        zeros = tf.zeros([B, H, 1, W, 1, R])
-        x -= tf.concat([x_avg, zeros], axis=5)  # residuals
+        x_avg = ops.mean(x[:, :, :, :, :, :I], axis=[2, 4], keepdims=True)
+        zeros = ops.zeros([B, H, 1, W, 1, R])
+        x -= ops.concatenate([x_avg, zeros], axis=5)  # residuals
         x_avg = x_avg[:, :, 0, :, 0, :]  # means
 
         # make a new grid
-        x = tf.transpose(x, perm=[0, 1, 3, 2, 4, 5])
-        x = tf.reshape(x, [B, H, W, (I + R) * 4])
+        x = ops.transpose(x, perm=[0, 1, 3, 2, 4, 5])
+        x = ops.reshape(x, [B, H, W, (I + R) * 4])
 
-        x = tf.concat([x_avg, x], axis=3)
+        x = ops.concatenate([x_avg, x], axis=3)
 
         if self._expansion_factor > 1:  # expand
             x = self.prenorm1_layer(x, training=training)
@@ -578,7 +578,7 @@ class Downsize2D_V2(DUCLayer):
         x = self.projection_layer(x, training=training)
 
         # form output
-        x = tf.concat([x_avg, x], axis=3)
+        x = ops.concatenate([x_avg, x], axis=3)
 
         return x
 
@@ -736,7 +736,7 @@ class Upsize2D_V2(DUCLayer):
     def call(self, x, training: bool = False):
         I = self._img_dim
         R = (self._res_dim - self._img_dim) // 2
-        input_shape = tf.shape(x)
+        input_shape = ops.shape(x)
         B = input_shape[0]
         H = input_shape[1]
         W = input_shape[2]
@@ -752,16 +752,16 @@ class Upsize2D_V2(DUCLayer):
         x = self.projection_layer(x, training=training)
 
         # reshape
-        x = tf.reshape(x, [B, H, W, 2, 2, I + R])
+        x = ops.reshape(x, [B, H, W, 2, 2, I + R])
 
         # add average
-        zeros = tf.zeros([B, H, W, R])
-        x_avg = tf.concat([x_avg, zeros], axis=3)  # expanded average
-        x += x_avg[:, :, :, tf.newaxis, tf.newaxis, :]
+        zeros = ops.zeros([B, H, W, R])
+        x_avg = ops.concatenate([x_avg, zeros], axis=3)  # expanded average
+        x += x_avg[:, :, :, None, None, :]
 
         # make a new grid
-        x = tf.transpose(x, perm=[0, 1, 3, 2, 4, 5])
-        x = tf.reshape(x, [B, H * 2, W * 2, I + R])
+        x = ops.transpose(x, perm=[0, 1, 3, 2, 4, 5])
+        x = ops.reshape(x, [B, H * 2, W * 2, I + R])
 
         return x
 
@@ -931,20 +931,20 @@ class Downsize2D_V3(DUCLayer):
         # shape
         I = self._img_dim
         R = self._res_dim
-        input_shape = tf.shape(x)
+        input_shape = ops.shape(x)
         B = input_shape[0]
         H = input_shape[1] // 2
         W = input_shape[2] // 2
 
         # merge pairs of consecutive pixels in each row
         # target R = (I + 3R)/2 if R > 0 else I
-        x = tf.reshape(x, [B, H * 2, W, 2, I + R])
+        x = ops.reshape(x, [B, H * 2, W, 2, I + R])
         xl = x[:, :, :, 0, :I]
         xr = x[:, :, :, 1, :I]
         x_avg = (xl + xr) * 0.5  # shape = [B, H * 2, W, I]
         x_res = xl - xr  # shape = [B, H * 2, W, I]
         if R > 0:
-            x = tf.concat([x_avg, x_res, x[:, :, :, 0, I:], x[:, :, :, 1, I:]], axis=3)
+            x = ops.concatenate([x_avg, x_res, x[:, :, :, 0, I:], x[:, :, :, 1, I:]], axis=3)
             if R > I:
                 x = self.prenorm1_layer(x, training=training)
                 x = self.expand1_layer(
@@ -956,21 +956,21 @@ class Downsize2D_V3(DUCLayer):
         else:
             x = x_res
             RR = I
-        x_avg = tf.reshape(x_avg, [B, H, 2, W, I])
-        x = tf.reshape(x, [B, H, 2, W, RR])
+        x_avg = ops.reshape(x_avg, [B, H, 2, W, I])
+        x = ops.reshape(x, [B, H, 2, W, RR])
 
         # merge pairs of consecutive pixels in each column
         xt = x_avg[:, :, 0, :, :]
         xb = x_avg[:, :, 1, :, :]
         x_avg = (xt + xb) * 0.5  # shape = [B, H, W, I]
         x_res = xt - xb  # shape = [B, H, W, I]
-        x = tf.concat([x_avg, x_res, x[:, :, 0, :, :], x[:, :, 1, :, :]], axis=3)
+        x = ops.concatenate([x_avg, x_res, x[:, :, 0, :, :], x[:, :, 1, :, :]], axis=3)
         if R > 0:
             x = self.prenorm3_layer(x, training=training)
             x = self.expand2_layer(x, training=training)  # shape = [B, H, W, I*2+RR*4]
         x = self.prenorm4_layer(x, training=training)
         x = self.project2_layer(x, training=training)  # shape = [B, H, W, I + 2 * R]
-        x = tf.concat([x_avg, x], axis=3)  # shape = [B, H, W, 2 * (I + R)]
+        x = ops.concatenate([x_avg, x], axis=3)  # shape = [B, H, W, 2 * (I + R)]
 
         # output
         return x
@@ -1197,28 +1197,28 @@ class DownsizeX2D(DUCLayerV5):
 
     def call(self, x, training: bool = False):
         # shape
-        input_shape = tf.shape(x)
+        input_shape = ops.shape(x)
         B = input_shape[0]
         H = input_shape[1]
         W = input_shape[2] // 2
 
         # merge pairs of consecutive pixels in each row
         if self.R > 0:
-            x = tf.reshape(x, [B, H, W, 2, self.I + self.R])
+            x = ops.reshape(x, [B, H, W, 2, self.I + self.R])
             xl = x[:, :, :, 0, :]
             xr = x[:, :, :, 1, :]
             x_avg = (xl + xr) * 0.5
             x_res = xl - xr
-            x = tf.concat([x_avg, x_res], axis=3)
+            x = ops.concatenate([x_avg, x_res], axis=3)
             if self.R > self.I:
                 x = self.prenorm1_layer(x, training=training)
                 x = self.expand1_layer(x, training=training)  # shape = [B,H,W,(I+R)*4]
             x = self.prenorm2_layer(x, training=training)
             x = self.project1_layer(x, training=training)  # shape = [B, H, W, RX]
             x_avg = x_avg[:, :, :, : self.I]
-            x = tf.concat([x_avg, x], axis=3)  # shape = [B, H, W, I + RX]
+            x = ops.concatenate([x_avg, x], axis=3)  # shape = [B, H, W, I + RX]
         else:
-            x = tf.reshape(x, [B, H, W, self.I * 2])
+            x = ops.reshape(x, [B, H, W, self.I * 2])
 
         # output
         return x
@@ -1332,7 +1332,7 @@ class UpsizeX2D(DUCLayerV5):
 
     def call(self, x, training: bool = False):
         # shape
-        input_shape = tf.shape(x)
+        input_shape = ops.shape(x)
         B = input_shape[0]
         H = input_shape[1]
         W = input_shape[2]
@@ -1345,11 +1345,11 @@ class UpsizeX2D(DUCLayerV5):
             x = self.prenorm2_layer(x, training=training)
             x1 = self.project1_layer(x, training=training)  # shape = [B, H, W, R]
             x = self.project2_layer(x, training=training)  # shape = [B, H, W, I + R]
-            x_avg = tf.concat([x_avg, x1], axis=3)
-            x = tf.concat([x_avg + x, x_avg - x], axis=3)
-            x = tf.reshape(x, [B, H, W * 2, self.I + self.R])
+            x_avg = ops.concatenate([x_avg, x1], axis=3)
+            x = ops.concatenate([x_avg + x, x_avg - x], axis=3)
+            x = ops.reshape(x, [B, H, W * 2, self.I + self.R])
         else:
-            x = tf.reshape(x, [B, H, W * 2, self.I])
+            x = ops.reshape(x, [B, H, W * 2, self.I])
 
         # output
         return x
@@ -1450,18 +1450,18 @@ class DownsizeY2D(DUCLayerV5):
 
     def call(self, x, training: bool = False):
         # shape
-        input_shape = tf.shape(x)
+        input_shape = ops.shape(x)
         B = input_shape[0]
         H = input_shape[1] // 2
         W = input_shape[2]
 
         # merge pairs of consecutive pixels in each column
-        x = tf.reshape(x, [B, H, 2, W, self.I + self.RX])
+        x = ops.reshape(x, [B, H, 2, W, self.I + self.RX])
         xt = x[:, :, 0, :, :]
         xb = x[:, :, 1, :, :]
         x_avg = (xt + xb) * 0.5
         x_res = xt - xb
-        x = tf.concat([x_avg, x_res], axis=3)
+        x = ops.concatenate([x_avg, x_res], axis=3)
         if self.R > 0:
             x = self.prenorm1_layer(x, training=training)
             x = self.expand1_layer(x, training=training)  # shape = [B, H, W, I*2+RX*4]
@@ -1470,7 +1470,7 @@ class DownsizeY2D(DUCLayerV5):
 
         # output
         x_avg = x_avg[:, :, :, : self.I]
-        x = tf.concat([x_avg, x], axis=3)  # shape = [B, H, W, I + RY]
+        x = ops.concatenate([x_avg, x], axis=3)  # shape = [B, H, W, I + RY]
         return x
 
     call.__doc__ = DUCLayerV5.call.__doc__
@@ -1581,7 +1581,7 @@ class UpsizeY2D(DUCLayerV5):
 
     def call(self, x, training: bool = False):
         # shape
-        input_shape = tf.shape(x)
+        input_shape = ops.shape(x)
         B = input_shape[0]
         H = input_shape[1]
         W = input_shape[2]
@@ -1593,13 +1593,13 @@ class UpsizeY2D(DUCLayerV5):
         x = self.prenorm2_layer(x, training=training)
         x1 = self.project1_layer(x, training=training)  # shape = [B, H, W, RX]
         x = self.project2_layer(x, training=training)  # shape = [B, H, W, I + RX]
-        x_avg = tf.concat([x_avg, x1], axis=3)
+        x_avg = ops.concatenate([x_avg, x1], axis=3)
 
         # output
-        x = tf.concat([x_avg + x, x_avg - x], axis=3)
-        x = tf.reshape(x, [B, H, W, 2, self.I + self.RX])
-        x = tf.transpose(x, perm=[0, 1, 3, 2, 4])
-        x = tf.reshape(x, [B, H * 2, W, self.I + self.RX])
+        x = ops.concatenate([x_avg + x, x_avg - x], axis=3)
+        x = ops.reshape(x, [B, H, W, 2, self.I + self.RX])
+        x = ops.transpose(x, perm=[0, 1, 3, 2, 4])
+        x = ops.reshape(x, [B, H * 2, W, self.I + self.RX])
         return x
 
     call.__doc__ = DUCLayerV5.call.__doc__

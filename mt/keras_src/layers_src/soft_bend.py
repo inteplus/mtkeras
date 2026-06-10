@@ -33,3 +33,10 @@ class SoftBend(layers.Layer):
         return input_shape
 
     compute_output_shape.__doc__ = layers.Layer.compute_output_shape.__doc__
+
+    def get_config(self):
+        config = {"alpha": self.alpha}
+        base_config = super(SoftBend, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+    get_config.__doc__ = layers.Layer.get_config.__doc__

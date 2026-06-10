@@ -19,6 +19,7 @@ from .mobilenet_v3_split import (
     layers,
 )
 from .. import activations as keras_activations
+from ..ops_compat import ops
 
 
 def conv_block(x, filters=16, kernel_size=3, strides=2):
@@ -123,7 +124,7 @@ def mobilevit_block(x, num_blocks, projection_dim, strides=1):
     )(
         z
     )  # (B,H/P,P,W/P,P,C)
-    z = tf.transpose(z, perm=[0, 2, 4, 1, 3, 5])  # (B,P,P,H/P,W/P,C)
+    z = ops.transpose(z, perm=[0, 2, 4, 1, 3, 5])  # (B,P,P,H/P,W/P,C)
     non_overlapping_patches = layers.Reshape(
         (cell_size * cell_size, z.shape[3] * z.shape[4], projection_dim)
     )(
@@ -145,7 +146,7 @@ def mobilevit_block(x, num_blocks, projection_dim, strides=1):
     )(
         global_features
     )  # (B,P,P,H/P,W/P,C)
-    z = tf.transpose(z, perm=[0, 3, 1, 4, 2, 5])  # (B,H/P,P,W/P,P,C)
+    z = ops.transpose(z, perm=[0, 3, 1, 4, 2, 5])  # (B,H/P,P,W/P,P,C)
     folded_feature_map = layers.Reshape((x.shape[1], x.shape[2], projection_dim))(z)
 
     # Apply point-wise conv -> concatenate with the input features.

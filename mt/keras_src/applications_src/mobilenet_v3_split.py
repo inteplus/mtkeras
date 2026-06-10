@@ -308,7 +308,7 @@ def MobileNetV3Mixer(
         )(x)
         x = activation(x)
     elif params.variant == "maxpool":
-        x = layers.GlobalMaxPool2D(x)
+        x = layers.GlobalMaxPool2D()(x)
     elif params.variant == "mhapool":
         if backend.image_data_format() == "channels_first":
             raise tfc.ModelSyntaxError(

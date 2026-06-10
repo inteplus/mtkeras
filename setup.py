@@ -11,10 +11,9 @@ setup(
     author="Minh-Tri Pham",
     packages=find_namespace_packages(include=["mt.keras*", "mt.keras_src*"]),
     install_requires=[
-        "mttf>=1.4.0",
         "pyyaml",
         "mtbase>=4.33.0",  # to rely on uv
-        "mtnet>=0.3.4",  # to have mt.tfc
+        "mtnet>=0.3.5",  # to have mt.tfc
     ],
     url="https://github.com/inteplus/mtkeras",
     project_urls={

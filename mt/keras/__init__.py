@@ -1,4 +1,4 @@
-"""MT package that represents the working Keras 2 from the system."""
+"""MT package that wraps Keras 2 (tf_keras / tensorflow.keras) or Keras 3 with any backend."""
 
 from mt.keras_src import *
 from mt.keras_src import (

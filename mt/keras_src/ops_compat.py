@@ -34,6 +34,14 @@ if keras_source == "keras3":
         def transpose(self, x, perm=None):
             return _keras_ops.transpose(x, axes=perm)
 
+        def constant(self, value, dtype=None):
+            # keras.ops has no `constant`; convert_to_tensor is the equivalent
+            return _keras_ops.convert_to_tensor(value, dtype=dtype)
+
+        def pow(self, x, y):
+            # keras.ops uses `power`, not `pow`
+            return _keras_ops.power(x, y)
+
     ops_impl = _Keras3OpsWrapper()
 else:
     # For Keras 2, create a wrapper around TensorFlow operations

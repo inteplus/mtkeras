@@ -54,32 +54,9 @@ def _detect_keras_3():
 
         kr_ver = Version(keras.__version__)
         if kr_ver >= Version("3.0"):
-            # Keras 3 is available
-            backend = KERAS_BACKEND_ENV or os.environ.get("KERAS_BACKEND", "torch")
-
-            # Validate backend is installed
-            if backend == "torch":
-                try:
-                    import torch  # noqa: F401
-                except ImportError:
-                    raise ImportError(
-                        "PyTorch backend requested but torch is not installed. "
-                        "Install it with: pip install torch"
-                    )
-            elif backend == "tensorflow":
-                try:
-                    import tensorflow  # noqa: F401
-                except ImportError:
-                    raise ImportError(
-                        "TensorFlow backend requested but tensorflow is not installed. "
-                        "Install it with: pip install tensorflow"
-                    )
-            elif backend not in ["jax", "numpy"]:
-                raise ValueError(
-                    f"Unknown KERAS_BACKEND: {backend}. "
-                    f"Valid options: 'tensorflow', 'torch', 'jax', 'numpy'"
-                )
-
+            # KERAS_BACKEND env var must be set before importing keras; read from
+            # keras.backend.backend() to get whatever backend keras resolved to.
+            backend = KERAS_BACKEND_ENV or keras.backend.backend()
             return "keras3", keras.__version__, keras, backend
     except ImportError:
         pass

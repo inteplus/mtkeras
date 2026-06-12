@@ -181,8 +181,9 @@ class SimpleMHA2D(layers.Layer):
             and `V` is the value dimensionality.
         """
 
-        bs_shape = ops.shape(key_value)[0:1]
-        hw_shape = ops.reduce_prod(ops.shape(key_value)[1:3], axis=0, keepdims=True)
+        kv_s = ops.shape(key_value)
+        B = kv_s[0]
+        HW = kv_s[1] * kv_s[2]
 
         #   N = `num_attention_heads`
         #   K = `key_dim`
@@ -193,17 +194,11 @@ class SimpleMHA2D(layers.Layer):
 
         # `key` = [B, H*W, N, K]
         key = self.layer_key_proj(key_value, training=training)
-        key_shape = ops.concatenate(
-            [bs_shape, hw_shape, [self._num_heads, self._key_dim]], axis=0
-        )
-        key = ops.reshape(key, key_shape)
+        key = ops.reshape(key, [B, HW, self._num_heads, self._key_dim])
 
         # `value` = [B, H*W, N, V]
         value = self.layer_value_proj(key_value, training=training)
-        value_shape = ops.concatenate(
-            [bs_shape, hw_shape, [self._num_heads, self._value_dim]], axis=0
-        )
-        value = ops.reshape(value, value_shape)
+        value = ops.reshape(value, [B, HW, self._num_heads, self._value_dim])
 
         # `dot_prod` = [B, H*W, N]
         dot_prod = ops.reduce_sum(self.tensor_query * key, axis=-1)
@@ -413,9 +408,9 @@ class MHAPool2D(layers.Layer):
             `return_attention_scores` is True.
         """
 
-        blob_shape = ops.shape(blob)
-        bs_shape = blob_shape[0:1]  # [B]
-        hw_shape = ops.reduce_prod(blob_shape[1:3], axis=0, keepdims=True)  # [H*W]
+        blob_s = ops.shape(blob)
+        B = blob_s[0]
+        HW = blob_s[1] * blob_s[2]
 
         #   N = `num_attention_heads`
         #   K = `key_dim`
@@ -428,25 +423,17 @@ class MHAPool2D(layers.Layer):
 
         # `query` = [B, H2, W2, N, K]
         query = self.layer_query_proj(query, training=training)
-        query_head_shape = ops.shape(query)[0:3]  # [B, H2, W2]
-        query_shape = ops.concatenate(
-            [query_head_shape, [self._num_heads, self._key_dim]], axis=0
-        )
-        query = ops.reshape(query, query_shape)
+        q_s = ops.shape(query)
+        H2, W2 = q_s[1], q_s[2]
+        query = ops.reshape(query, [B, H2, W2, self._num_heads, self._key_dim])
 
         # `key` = [B, H*W, N, K]
         key = self.layer_key_proj(blob, training=training)
-        key_shape = ops.concatenate(
-            [bs_shape, hw_shape, [self._num_heads, self._key_dim]], axis=0
-        )
-        key = ops.reshape(key, key_shape)
+        key = ops.reshape(key, [B, HW, self._num_heads, self._key_dim])
 
         # `value` = [B, H*W, N, V]
         value = self.layer_value_proj(blob, training=training)
-        value_shape = ops.concatenate(
-            [bs_shape, hw_shape, [self._num_heads, self._value_dim]], axis=0
-        )
-        value = ops.reshape(value, value_shape)
+        value = ops.reshape(value, [B, HW, self._num_heads, self._value_dim])
 
         # `prod` = [B, H2, W2, H*W, N]
         query *= 1.0 / math.sqrt(float(self._key_dim))
@@ -463,10 +450,7 @@ class MHAPool2D(layers.Layer):
         attention_output = ops.einsum("bhwin,binv->bhwnv", dropout, value)
 
         # `output`
-        output_shape = ops.concatenate(
-            [query_head_shape, [self._num_heads * self._value_dim]], axis=0
-        )
-        output = ops.reshape(attention_output, output_shape)
+        output = ops.reshape(attention_output, [B, H2, W2, self._num_heads * self._value_dim])
 
         if return_attention_scores:
             return output, attention_scores

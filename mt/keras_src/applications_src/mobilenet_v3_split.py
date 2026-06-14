@@ -37,6 +37,8 @@ import importlib
 from mt import tp, tfc
 from .. import keras_source
 
+_name_sep = "_" if keras_source == "keras3" else "/"
+
 
 def _import_mobilenet_v3_module(candidates):
     last_error = None
@@ -152,7 +154,7 @@ def MobileNetV3Parser(
         16, kernel_size=3, strides=(2, 2), padding="same", use_bias=False, name="Conv"
     )(x)
     x = layers.BatchNormalization(
-        axis=channel_axis, epsilon=1e-3, momentum=0.999, name="Conv/BatchNorm"
+        axis=channel_axis, epsilon=1e-3, momentum=0.999, name="Conv" + _name_sep + "BatchNorm"
     )(x)
     x = activation(x)
 
@@ -295,7 +297,7 @@ def MobileNetV3Mixer(
             last_conv_ch, kernel_size=1, padding="same", use_bias=False, name="Conv_1"
         )(x)
         x = layers.BatchNormalization(
-            axis=channel_axis, epsilon=1e-3, momentum=0.999, name="Conv_1/BatchNorm"
+            axis=channel_axis, epsilon=1e-3, momentum=0.999, name="Conv_1" + _name_sep + "BatchNorm"
         )(x)
         x = activation(x)
         x = layers.GlobalAveragePooling2D()(x)
@@ -341,7 +343,7 @@ def MobileNetV3Mixer(
             block_name = f"MHAPool2DCascade_block{k}"
             if k > mhapool_params.max_num_pooling_layers:  # GlobalMaxPool2D
                 x = layers.GlobalMaxPooling2D(
-                    keepdims=True, name=block_name + "/GlobalMaxPool"
+                    keepdims=True, name=block_name + _name_sep + "GlobalMaxPool"
                 )(x)
             else:  # MHAPool2D
                 x = layers.LayerNormalization()(x)
@@ -355,7 +357,7 @@ def MobileNetV3Mixer(
                     value_dim=value_dim,
                     pooling=mhapool_params.pooling,
                     dropout=mhapool_params.dropout,
-                    name=block_name + "/MHAPool",
+                    name=block_name + _name_sep + "MHAPool",
                 )(x)
 
             if mhapool_params.output_all:

@@ -20,7 +20,9 @@ else:
     )
 
 # Model file formats supported by each Keras version
-d_modelFileFormats = {"H5": ".h5", "TF": ".tf"}
+d_modelFileFormats = {"H5": ".h5"}
+if keras_source != "keras3":
+    d_modelFileFormats["TF"] = ".tf"
 
 # Keras 2.15+, tf_keras, and Keras 3 support .keras format
 if keras_source == "keras3":

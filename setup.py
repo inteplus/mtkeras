@@ -12,7 +12,7 @@ setup(
     packages=find_namespace_packages(include=["mt.keras*", "mt.keras_src*"]),
     install_requires=[
         "pyyaml",
-        "mtbase>=4.33.0",  # to rely on uv
+        "mtbase>=4.33.29",  # to rely on uv
         "mtnet>=0.3.5",  # to have mt.tfc
     ],
     url="https://github.com/inteplus/mtkeras",

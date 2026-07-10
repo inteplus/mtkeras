@@ -96,15 +96,15 @@ elif KERAS_BACKEND_ENV or os.environ.get("KERAS_PREFER", "") == "keras3":
         # Fall back to Keras 2
         keras_source, keras_version, keras_package = _detect_keras_2()
 
-# 3. Default: Try Keras 2 first, then Keras 3
+# 3. Default: Try Keras 3 first, then Keras 2
 else:
     try:
-        keras_source, keras_version, keras_package = _detect_keras_2()
+        keras_source, keras_version, keras_package, keras_backend = _detect_keras_3()
     except ImportError:
-        # If Keras 2 detection fails, try Keras 3
-        result = _detect_keras_3()
+        # If Keras 3 detection fails, try Keras 2
+        result = _detect_keras_2()
         if result:
-            keras_source, keras_version, keras_package, keras_backend = result
+            keras_source, keras_version, keras_package = result
         else:
             raise ImportError(
                 "No compatible Keras installation found. "

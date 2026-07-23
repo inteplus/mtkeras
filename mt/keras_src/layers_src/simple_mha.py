@@ -164,6 +164,15 @@ class SimpleMHA2D(layers.Layer):
         if self._dropout > 0:
             self.layer_dropout = layers.Dropout(rate=self._dropout)
 
+        if keras_source == "keras3":
+            # All state (weights and sub-layers) is created above, in __init__, with
+            # sub-layers like Conv2D building their own weights lazily on first call --
+            # so there's nothing left for a shape-dependent build() to do. Without this,
+            # Keras 3's default build() flags the layer as having "unbuilt state" (its
+            # sub-layers aren't built yet at __init__ time) and warns, even though nothing
+            # is actually broken. Keras 2 has no such check/attribute.
+            self._build_at_init()
+
     def call(self, key_value, training=None):
         """The call function.
 
@@ -384,6 +393,15 @@ class MHAPool2D(layers.Layer):
         self.layer_softmax = layers.Softmax(axis=3)
         if self._dropout > 0:
             self.layer_dropout = layers.Dropout(rate=self._dropout)
+
+        if keras_source == "keras3":
+            # All state (weights and sub-layers) is created above, in __init__, with
+            # sub-layers like Conv2D building their own weights lazily on first call --
+            # so there's nothing left for a shape-dependent build() to do. Without this,
+            # Keras 3's default build() flags the layer as having "unbuilt state" (its
+            # sub-layers aren't built yet at __init__ time) and warns, even though nothing
+            # is actually broken. Keras 2 has no such check/attribute.
+            self._build_at_init()
 
     def call(self, blob, training=None, return_attention_scores: bool = False):
         """The call function.

@@ -1,14 +1,15 @@
 """Useful subroutines dealing with GPU devices."""
 
-from mt import tp, tfc
+from mt import tp
+from mt.base import model as base_model
 
 
-def conv2d(name_scope: tfc.NameScope, x, filters, kernel_size, **kwargs):
+def conv2d(name_scope: base_model.NameScope, x, filters, kernel_size, **kwargs):
     """Wrapper of Keras Conv2D layer with a LayerNormalization layer.
 
     Parameters
     ----------
-    name_scope : mt.tfc.NameScope
+    name_scope : mt.base.model.NameScope
         the name scope. For every conv2d invocation, the name scope is iterated.
     x : tensor-like
         Keras tensor or TF tensor as input
@@ -38,7 +39,12 @@ def conv2d(name_scope: tfc.NameScope, x, filters, kernel_size, **kwargs):
 
 
 def dense2d(
-    name_scope: tfc.NameScope, x, filters, kernel_size, activation="tanh", **kwargs
+    name_scope: base_model.NameScope,
+    x,
+    filters,
+    kernel_size,
+    activation="tanh",
+    **kwargs
 ):
     """Wrapper of Keras Conv2D layer with a LayerNormalization layer.
 
@@ -47,7 +53,7 @@ def dense2d(
 
     Parameters
     ----------
-    name_scope : mt.tfc.NameScope
+    name_scope : mt.base.model.NameScope
         the name scope. For every conv2d invocation, the name scope is iterated.
     x : tensor-like
         Keras tensor or TF tensor as input

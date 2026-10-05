@@ -9,7 +9,8 @@ to the `MobileViT ICLR2022 paper <https://arxiv.org/abs/2110.02178>`_ for more d
 The paper authors' code is `here <https://github.com/apple/ml-cvnets>`_.
 """
 
-from mt import tp, tfc
+from mt import tp
+from mt.base import model as base_model
 
 from .mobilenet_v3_split import (
     MobileNetV3Input,
@@ -102,12 +103,12 @@ def mobilevit_block(x, num_blocks, projection_dim, strides=1):
     )
 
     if x.shape[1] % cell_size != 0:
-        raise tfc.ModelSyntaxError(
+        raise base_model.ModelSyntaxError(
             f"Input tensor must have height divisible by {cell_size}. Got {x.shape}."
         )
 
     if x.shape[2] % cell_size != 0:
-        raise tfc.ModelSyntaxError(
+        raise base_model.ModelSyntaxError(
             f"Input tensor must have width divisible by {cell_size}. Got {x.shape}."
         )
 

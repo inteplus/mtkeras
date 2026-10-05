@@ -34,7 +34,8 @@ no pre-trained weights exist.
 
 import importlib
 
-from mt import tp, tfc
+from mt import tp
+from mt.base import model as base_model
 from .. import keras_source
 
 _name_sep = "_" if keras_source == "keras3" else "/"
@@ -126,7 +127,7 @@ def MobileNetV3Input(
     rows = input_shape[row_axis]
     cols = input_shape[col_axis]
     if rows and cols and (rows < 32 or cols < 32):
-        raise tfc.ModelSyntaxError(
+        raise base_model.ModelSyntaxError(
             f"Input size must be at least 32x32; got `input_shape={input_shape}`"
         )
 
@@ -154,7 +155,10 @@ def MobileNetV3Parser(
         16, kernel_size=3, strides=(2, 2), padding="same", use_bias=False, name="Conv"
     )(x)
     x = layers.BatchNormalization(
-        axis=channel_axis, epsilon=1e-3, momentum=0.999, name="Conv" + _name_sep + "BatchNorm"
+        axis=channel_axis,
+        epsilon=1e-3,
+        momentum=0.999,
+        name="Conv" + _name_sep + "BatchNorm",
     )(x)
     x = activation(x)
 
@@ -260,7 +264,7 @@ def MobileNetV3LargeBlock(
 
 def MobileNetV3Mixer(
     input_tensor,
-    params: tfc.MobileNetV3MixerParams,
+    params: base_model.MobileNetV3MixerParams,
     last_point_ch,
     alpha=1.0,
     model_type: str = "Large",  # only 'Small' or 'Large' are accepted
@@ -284,7 +288,7 @@ def MobileNetV3Mixer(
 
         input_channels = x.shape[channel_axis]
         if input_channels is None:
-            raise tfc.ModelSyntaxError(
+            raise base_model.ModelSyntaxError(
                 "Could not infer channel dimension for MobileNetV3 mixer input."
             )
         last_conv_ch = _depth(int(input_channels) * 6)
@@ -297,7 +301,10 @@ def MobileNetV3Mixer(
             last_conv_ch, kernel_size=1, padding="same", use_bias=False, name="Conv_1"
         )(x)
         x = layers.BatchNormalization(
-            axis=channel_axis, epsilon=1e-3, momentum=0.999, name="Conv_1" + _name_sep + "BatchNorm"
+            axis=channel_axis,
+            epsilon=1e-3,
+            momentum=0.999,
+            name="Conv_1" + _name_sep + "BatchNorm",
         )(x)
         x = activation(x)
         x = layers.GlobalAveragePooling2D()(x)
@@ -313,15 +320,17 @@ def MobileNetV3Mixer(
         x = layers.GlobalMaxPool2D()(x)
     elif params.variant == "mhapool":
         if backend.image_data_format() == "channels_first":
-            raise tfc.ModelSyntaxError(
+            raise base_model.ModelSyntaxError(
                 "Mixer variant 'mhapool' requires channels_last image data format."
             )
 
         mhapool_params = params.mhapool_cascade_params
-        if not isinstance(mhapool_params, tfc.MHAPool2DCascadeParams):
-            raise tfc.ModelSyntaxError(
+        if not isinstance(mhapool_params, base_model.MHAPool2DCascadeParams):
+            raise base_model.ModelSyntaxError(
                 "Parameter 'params.mhapool_cascade_params' is not of type "
-                "mt.tfc.MHAPool2DCascadeParams. Got: {}.".format(type(mhapool_params))
+                "mt.base.model.MHAPool2DCascadeParams. Got: {}.".format(
+                    type(mhapool_params)
+                )
             )
 
         from ..layers_src import MHAPool2D
@@ -365,7 +374,7 @@ def MobileNetV3Mixer(
             else:
                 outputs = [x]
     else:
-        raise tfc.ModelSyntaxError(
+        raise base_model.ModelSyntaxError(
             "Unknown mixer variant: '{}'.".format(params.variant)
         )
 
@@ -415,7 +424,7 @@ def MobileNetV3Split(
     model_type: str = "Large",
     max_n_blocks: int = 6,
     minimalistic: bool = False,
-    mixer_params: tp.Optional[tfc.MobileNetV3MixerParams] = None,
+    mixer_params: tp.Optional[base_model.MobileNetV3MixerParams] = None,
     include_top: bool = True,
     pooling=None,
     classes: int = 1000,
@@ -456,7 +465,7 @@ def MobileNetV3Split(
         however, they do not utilize any of the advanced blocks (squeeze-and-excite units,
         hard-swish, and 5x5 convolutions). While these models are less efficient on CPU, they
         are much more performant on GPU/DSP.
-    mixer_params : mt.tfc.MobileNetV3MixerParams, optional
+    mixer_params : mt.base.model.MobileNetV3MixerParams, optional
         parameters for defining the mixer block
     include_top : bool, default True
         whether to include the fully-connected layer at the top of the network. Only valid if
@@ -516,10 +525,12 @@ def MobileNetV3Split(
             outputs = [x]
 
     if mixer_params is not None:
-        if not isinstance(mixer_params, tfc.MobileNetV3MixerParams):
-            raise tfc.ModelSyntaxError(
+        if not isinstance(mixer_params, base_model.MobileNetV3MixerParams):
+            raise base_model.ModelSyntaxError(
                 "Argument 'mixer_params' is not an instance of "
-                "mt.tfc.MobileNetV3MixerParams. Got: {}.".format(type(mixer_params))
+                "mt.base.model.MobileNetV3MixerParams. Got: {}.".format(
+                    type(mixer_params)
+                )
             )
 
         if model_type == "Large":

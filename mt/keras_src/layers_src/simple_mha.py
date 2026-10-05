@@ -18,7 +18,8 @@
 
 import math
 
-from mt import tp, tfc
+from mt import tp
+from mt.base import model as base_model
 from .. import layers, initializers, regularizers, constraints, activations
 from ..ops_compat import ops
 from ..base import keras_source
@@ -344,7 +345,7 @@ class MHAPool2D(layers.Layer):
         elif self._pooling == "avg":
             self.layer_pool = layers.AveragePooling2D()
         else:
-            raise tfc.ModelSyntaxError(
+            raise base_model.ModelSyntaxError(
                 "Invalid pooling string: '{}'.".format(self._pooling)
             )
 
@@ -468,7 +469,9 @@ class MHAPool2D(layers.Layer):
         attention_output = ops.einsum("bhwin,binv->bhwnv", dropout, value)
 
         # `output`
-        output = ops.reshape(attention_output, [B, H2, W2, self._num_heads * self._value_dim])
+        output = ops.reshape(
+            attention_output, [B, H2, W2, self._num_heads * self._value_dim]
+        )
 
         if return_attention_scores:
             return output, attention_scores

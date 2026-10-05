@@ -1,6 +1,7 @@
 """Standard classifier from a feature vector."""
 
-from mt import tp, tfc, logg
+from mt import tp, logg
+from mt.base import model as base_model
 from .. import models, layers, regularizers
 
 from ..constraints_src import CenterAround
@@ -10,7 +11,7 @@ def create_classifier_block(
     input_dim: int,
     n_classes: int,
     name: str = "dense_classifier",
-    params: tfc.ClassifierParams = tfc.ClassifierParams(),
+    params: base_model.ClassifierParams = base_model.ClassifierParams(),
     logger: tp.Optional[logg.IndentedLoggerAdapter] = None,
 ):
     """Creates a standard classifier block.
@@ -23,7 +24,7 @@ def create_classifier_block(
         number of output classes
     name : str, optional
         the name of the classifier block
-    params : mt.tfc.ClassifierParams
+    params : mt.base.model.ClassifierParams
         parameters for creating the classifier block
     logger : mt.logg.IndentedLoggerAdapter, optional
         logger for debugging purposes
@@ -37,7 +38,7 @@ def create_classifier_block(
 
     msg = f"Creating a classifier block of {n_classes} classes"
     with logg.scoped_info(msg, logger=logger):
-        name_scope = tfc.NameScope(name)
+        name_scope = base_model.NameScope(name)
 
         x = bv_feats = layers.Input(shape=(input_dim,), name=name_scope("input"))
 

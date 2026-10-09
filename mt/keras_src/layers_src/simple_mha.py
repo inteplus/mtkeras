@@ -12,7 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""A simplified version of keras-based attention layer."""
+"""A simplified version of keras-based attention layer.
+
+Provides two layers that apply attention to a 2D feature map of shape ``(B, H, W, C)``:
+
+- :class:`SimpleMHA2D`: pools the whole map into ``(B, num_heads, value_dim)`` using a learned
+  query.
+- :class:`MHAPool2D`: pools a 2D map into a smaller 2D map ``(B, H2, W2, num_heads * value_dim)``
+  using queries derived from a max/avg-pooled copy of the input.
+"""
 
 # pylint: disable=g-classes-have-attributes
 
@@ -69,25 +77,39 @@ class SimpleMHA2D(layers.Layer):
     key_dim : int
         Size of each attention head for query and key.
     value_dim : int, optional
-        Size of each attention head for value.
-    use_bias : bool
-        Whether the convolutional layers use bias vectors/matrices.
-    activation : object
-        activation for the `value` convolution
-    kernel_initializer : object
-        Initializer for convolutional layer kernels.
-    bias_initializer : object
-        Initializer for convolutional layer biases.
-    kernel_regularizer : object
-        Regularizer for convolutional layer kernels.
-    bias_regularizer : object
-        Regularizer for convolutional layer biases.
-    kernel_constraint: object
-        Contraint function applied to the layer kernels.
-    bias_constraint: object
-        Contraint function applied to the layer biases.
-    dropout: float
-        dropout probability
+        Size of each attention head for value. If None (or 0), `key_dim` is used.
+    use_bias : bool, optional
+        Whether the convolutional layers use bias vectors/matrices. Defaults to True.
+    activation : str or callable, optional
+        activation for the `value` convolution. Defaults to ``"tanh"``.
+    kernel_initializer : str or object, optional
+        Initializer for convolutional layer kernels. Defaults to ``"glorot_uniform"``.
+    bias_initializer : str or object, optional
+        Initializer for convolutional layer biases. Defaults to ``"zeros"``.
+    kernel_regularizer : str or object, optional
+        Regularizer for convolutional layer kernels. Defaults to None.
+    bias_regularizer : str or object, optional
+        Regularizer for convolutional layer biases. Defaults to None.
+    kernel_constraint : str or object, optional
+        Constraint function applied to the layer kernels. Defaults to None.
+    bias_constraint : str or object, optional
+        Constraint function applied to the layer biases. Defaults to None.
+    dropout : float, optional
+        dropout probability applied to the attention weights (after the softmax). No dropout
+        layer is created if it is not positive. Defaults to 0.2.
+    **kwargs : dict
+        keyword arguments passed as-is to :class:`keras.layers.Layer` (e.g. ``name``)
+
+    Notes
+    -----
+    The query is not computed from the input but is a trainable weight of shape
+    ``(1, 1, num_heads, key_dim)`` initialised with ``"random_normal"``, so the layer behaves as
+    a learned attention pooling of the whole grid into one vector per head. All constructor
+    arguments are serialised by :meth:`get_config`.
+
+    See Also
+    --------
+    :class:`MHAPool2D` : attention pooling that keeps a (downsampled) 2D grid.
 
     Examples
     --------
@@ -175,13 +197,13 @@ class SimpleMHA2D(layers.Layer):
             self._build_at_init()
 
     def call(self, key_value, training=None):
-        """The call function.
+        """Computes the attention-pooled output of the input grid.
 
         Parameters
         ----------
         key_value : Tensor
             input `Tensor` of shape `(B, H, W, KV)`.
-        training : bool
+        training : bool, optional
             Whether the layer should behave in training mode or in inference mode.
 
         Returns
@@ -225,6 +247,7 @@ class SimpleMHA2D(layers.Layer):
         return attention_output
 
     def get_config(self):
+        """Returns the layer config: the base config plus all constructor arguments."""
         config = {
             "num_heads": self._num_heads,
             "key_dim": self._key_dim,
@@ -270,31 +293,48 @@ class MHAPool2D(layers.Layer):
     key_dim : int
         Size of each attention head for query and key.
     value_dim : int, optional
-        Size of each attention head for value.
-    pooling : {'max', 'avg'}
-        type of 2D pooling
-    pool_size : int or tuple
-        integer or tuple of 2 integers, factors by which to downscale (vertical, horizontal).
-        (2, 2) will halve the input in both spatial dimension. If only one integer is specified,
-        the same window length will be used for both dimensions.
-    use_bias : bool
-        Whether the convolution layers use bias vectors/matrices.
-    activation : object
-        activation for the `value` convolution
-    kernel_initializer : object
-        Initializer for the convolutional layer kernels.
-    bias_initializer : object
-        Initializer for the convolutional layer biases.
-    kernel_regularizer : object
-        Regularizer for the convolutional layer kernels.
-    bias_regularizer : object
-        Regularizer for the convolutional layer biases.
-    kernel_constraint: object
-        Contraint function applied to the layer kernels.
-    bias_constraint: object
-        Contraint function applied to the layer biases.
-    dropout: float
-        dropout probability
+        Size of each attention head for value. If None (or 0), `key_dim` is used.
+    pooling : {'max', 'avg'}, optional
+        type of 2D pooling used to build the query grid. Defaults to ``'max'``.
+    pool_size : int or tuple, optional
+        intended factors by which to downscale (vertical, horizontal). Defaults to ``(2, 2)``.
+        It is stored and serialised but currently NOT used: the pooling layer is always created
+        with its own default window of 2x2.
+    use_bias : bool, optional
+        Whether the convolution layers use bias vectors/matrices. Defaults to True.
+    activation : str or callable, optional
+        activation for the `value` convolution. Defaults to ``"swish"``.
+    kernel_initializer : str or object, optional
+        Initializer for the convolutional layer kernels. Defaults to ``"glorot_uniform"``.
+    bias_initializer : str or object, optional
+        Initializer for the convolutional layer biases. Defaults to ``"zeros"``.
+    kernel_regularizer : str or object, optional
+        Regularizer for the convolutional layer kernels. Defaults to None.
+    bias_regularizer : str or object, optional
+        Regularizer for the convolutional layer biases. Defaults to None.
+    kernel_constraint : str or object, optional
+        Constraint function applied to the layer kernels. Defaults to None.
+    bias_constraint : str or object, optional
+        Constraint function applied to the layer biases. Defaults to None.
+    dropout : float, optional
+        dropout probability applied to the attention weights (after the softmax). Defaults to 0.2.
+    **kwargs : dict
+        keyword arguments passed as-is to :class:`keras.layers.Layer` (e.g. ``name``)
+
+    Raises
+    ------
+    mt.base.model.ModelSyntaxError
+        at construction, if `pooling` is neither ``'max'`` nor ``'avg'``
+
+    Notes
+    -----
+    The spatial size is halved (``MaxPool2D``/``AveragePooling2D`` with the default ``"valid"``
+    padding, so odd sizes are floored). All constructor arguments are serialised by
+    :meth:`get_config`.
+
+    See Also
+    --------
+    :class:`SimpleMHA2D` : attention pooling of the whole grid into one vector per head.
 
     Examples
     --------
@@ -405,16 +445,16 @@ class MHAPool2D(layers.Layer):
             self._build_at_init()
 
     def call(self, blob, training=None, return_attention_scores: bool = False):
-        """The call function.
+        """Computes the attention-pooled output of the input grid.
 
         Parameters
         ----------
         blob : Tensor
             input `Tensor` of shape `(B, H, W, D)`.
-        training : bool
+        training : bool, optional
             Whether the layer should behave in training mode or in inference mode.
-        return_attention_scores : bool
-            Whether to return the attention scores as well.
+        return_attention_scores : bool, optional
+            Whether to return the attention scores as well. Defaults to False.
 
         Returns
         -------
@@ -478,6 +518,7 @@ class MHAPool2D(layers.Layer):
         return output
 
     def get_config(self):
+        """Returns the layer config: the base config plus all constructor arguments."""
         config = {
             "num_heads": self._num_heads,
             "key_dim": self._key_dim,

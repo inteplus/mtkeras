@@ -1,3 +1,11 @@
+"""Keras layers plus MT layers.
+
+Everything public from the selected Keras ``layers`` is re-exported together with the MT layers
+listed in ``__api__`` (e.g. :class:`Identical`, :class:`Floor`, :class:`SoftBend`,
+:class:`NormedConv2D`, :class:`MTTransformerEncoder`, the image resizing layers and the
+:func:`conv2d` / :func:`dense2d` helpers).
+"""
+
 from .. import layers as _layers
 
 for _x, _y in _layers.__dict__.items():

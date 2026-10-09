@@ -22,6 +22,14 @@ class NormedConv2D(layers.Layer):
     bias vector of the convolution is omitted and replaced by the beta vector of the normalization.
     The activation of the convolution is done explicitly via an activation layer.
 
+    The sketch above is schematic. What :meth:`call` really does is: ``coeff = growth_rate /
+    (1 + count)``, ``z = coeff * conv + (1 - coeff) * norm(conv)``, then ``Activation(z)`` if an
+    activation was given, else ``z``. So the output moves from the raw convolution output
+    (``coeff`` of 1 when ``growth_rate=1`` and the count is 0, i.e. before any training call) to
+    the layer-normalised one as the :class:`Counter` grows (it increments on every call made
+    with a truthy ``training`` argument, before being read).
+    Note that ``count`` has shape ``(1,)`` and broadcasts against the convolution output.
+
     Parameters
     ----------
     filters : int
@@ -95,8 +103,10 @@ class NormedConv2D(layers.Layer):
     growth_rate : float
         Growth rate for switching from Conv2D output to the normed output. Defaults to 1.0.
     activation : str or object
-        Activation function to use. If you don't specify anything, no activation is applied (see
-        keras.activations).  Passed as-is to :class:`keras.layers.Activation`.
+        Activation function to use. If you don't specify anything (None), no activation is applied
+        (see keras.activations).  Passed as-is to :class:`keras.layers.Activation`.
+    **kwargs : dict
+        keyword arguments passed as-is to :class:`keras.layers.Layer` (e.g. ``name``)
 
     Input shape
     -----------
@@ -110,6 +120,17 @@ class NormedConv2D(layers.Layer):
     ``data_format='channels_first'`` or ``4+D`` tensor with shape:
     ``batch_shape + (new_rows, new_cols, filters)`` if ``data_format='channels_last'``. rows and
     cols values might have changed due to padding.
+
+    Notes
+    -----
+    Docstring caveats about the arguments: the layer norm is always applied over the last axis
+    (``axis=-1``), so ``data_format='channels_first'`` is not meaningful in practice. The
+    parameter ``center`` is a bool, not a float. :meth:`get_config` serialises initialisers,
+    regularisers and constraints and drops entries whose value is None.
+
+    See Also
+    --------
+    :class:`Counter` : the step counter used by this layer.
 
     Please see the `layer_normalization`_ paper for more details.
 
@@ -203,6 +224,20 @@ class NormedConv2D(layers.Layer):
             self.acti = layers.Activation(activation)
 
     def call(self, x, training: bool = False):
+        """Applies the convolution, the annealed layer normalisation and the activation.
+
+        Parameters
+        ----------
+        x : tensor-like
+            input tensor, see the class docstring for shapes
+        training : bool, optional
+            if true, the internal counter is incremented. Defaults to False.
+
+        Returns
+        -------
+        tensor-like
+            the output tensor, see the class docstring for shapes
+        """
         count = self.counter(x, training=training)
         coeff = self.growth_rate / (1.0 + count)
         y1 = self.conv2d(x, training=training)
@@ -216,6 +251,7 @@ class NormedConv2D(layers.Layer):
     call.__doc__ = layers.Layer.call.__doc__
 
     def get_config(self):
+        """Returns the base config plus all constructor arguments whose value is not None."""
         config = {key: getattr(self, key) for key in self.keys}
         prefixes = ["kernel", "gamma", "beta"]
         for prefix in prefixes:

@@ -1,3 +1,10 @@
+"""Keras applications plus MT additions.
+
+Everything public from the selected Keras ``applications`` is re-exported, together with
+:class:`MobileNetV3Split` and its building blocks, :func:`create_mobilevit` and
+:func:`create_classifier_block`.
+"""
+
 from .. import applications as _applications
 
 for _x, _y in _applications.__dict__.items():

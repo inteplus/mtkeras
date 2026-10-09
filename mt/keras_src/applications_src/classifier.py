@@ -1,4 +1,7 @@
-"""Standard classifier from a feature vector."""
+"""Standard classifier from a feature vector.
+
+Provides :func:`create_classifier_block`, a normalised dense softmax head.
+"""
 
 from mt import tp, logg
 from mt.base import model as base_model
@@ -16,6 +19,19 @@ def create_classifier_block(
 ):
     """Creates a standard classifier block.
 
+    The block maps a feature vector to class logits and probabilities:
+    ``LayerNormalization -> [Dropout] -> Dense(n_classes) -> Softmax``. Layer names are prefixed
+    via ``mt.base.model.NameScope(name)`` (``input``, ``prenorm``, ``dropout``, ``logits``,
+    ``probs``).
+
+    Optional behaviours are read from `params` with ``getattr`` (missing attributes are ignored):
+
+    - ``dropout``: if strictly between 0 and 1, a Dropout layer with this rate is inserted.
+    - ``l2_coeff``: if not None, L2 regularisers are put on the dense kernel (strength
+      ``l2_coeff / input_dim / n_classes``) and bias (``l2_coeff / n_classes``).
+    - ``zero_mean_logit_biases``: if true, the bias gets a
+      :class:`~mt.keras.constraints.CenterAround` constraint.
+
     Parameters
     ----------
     input_dim : int
@@ -23,9 +39,10 @@ def create_classifier_block(
     n_classes : int
         number of output classes
     name : str, optional
-        the name of the classifier block
-    params : mt.base.model.ClassifierParams
-        parameters for creating the classifier block
+        the name of the classifier block. Defaults to ``"dense_classifier"``.
+    params : mt.base.model.ClassifierParams, optional
+        parameters for creating the classifier block. Defaults to a default-constructed
+        ``ClassifierParams()``.
     logger : mt.logg.IndentedLoggerAdapter, optional
         logger for debugging purposes
 
@@ -33,7 +50,8 @@ def create_classifier_block(
     -------
     model : tensorflow.keras.models.Model
         an uninitialised model without any compilation details representing the classifier block.
-        The model returns `bv_logits` and `bv_probs`.
+        Its input has shape ``(batch, input_dim)``; it returns the list ``[bv_logits, bv_probs]``,
+        both of shape ``(batch, n_classes)``.
     """
 
     msg = f"Creating a classifier block of {n_classes} classes"

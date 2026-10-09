@@ -1,3 +1,11 @@
+"""Implementation of the :mod:`mt.keras` namespace.
+
+Re-exports everything from the selected Keras (see :mod:`mt.keras_src.base`) and defines
+``d_modelFileFormats``, a dict mapping a format name to a model-file extension supported by the
+selected Keras (``"H5"``: ``.h5`` always; ``"TF"``: ``.tf`` for Keras 2 only; ``"Keras"``:
+``.keras`` for Keras 3, ``tf_keras`` and Keras >= 2.15).
+"""
+
 from packaging.version import Version
 
 from .base import keras_version, keras_source, keras_backend, keras_package

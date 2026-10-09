@@ -42,6 +42,10 @@ _name_sep = "_" if keras_source == "keras3" else "/"
 
 
 def _import_mobilenet_v3_module(candidates):
+    """Imports and returns the first importable module among the module names `candidates`.
+
+    Raises ``ImportError`` (mentioning the last error) if none can be imported.
+    """
     last_error = None
     for module_name in candidates:
         try:
@@ -114,7 +118,24 @@ _inverted_res_block = mobilenet_v3_mod._inverted_res_block
 def MobileNetV3Input(
     input_shape=None,
 ):
-    """Prepares a MobileNetV3 input layer."""
+    """Prepares a MobileNetV3 input layer.
+
+    Parameters
+    ----------
+    input_shape : tuple, optional
+        shape of one image without the batch axis, e.g. ``(224, 224, 3)`` for channels-last data.
+        Height and width may be None. Defaults to ``(None, None, 3)``.
+
+    Returns
+    -------
+    keras.KerasTensor
+        the output of ``keras.layers.Input(shape=input_shape)``
+
+    Raises
+    ------
+    mt.base.model.ModelSyntaxError
+        if both the height and the width are known and either is smaller than 32
+    """
 
     # If input_shape is None and input_tensor is None using standard shape
     if input_shape is None:
@@ -140,7 +161,25 @@ def MobileNetV3Parser(
     model_type: str = "Large",  # only 'Small' or 'Large' are accepted
     minimalistic=False,
 ):
-    """Prepares a MobileNetV3 parser block."""
+    """Prepares a MobileNetV3 parser block (the stem).
+
+    The block is ``Rescaling`` (maps pixel values in ``[0, 255]`` to ``[-1, 1]``), a 3x3 stride-2
+    Conv2D with 16 filters, BatchNormalization and an activation. It downsamples once.
+
+    Parameters
+    ----------
+    img_input : keras.KerasTensor
+        the image input tensor, typically the output of :func:`MobileNetV3Input`
+    model_type : {'Small', 'Large'}, optional
+        only used to name the model, ``MobileNetV3<model_type>Parser``. Defaults to ``'Large'``.
+    minimalistic : bool, optional
+        if True, ReLU is used as activation instead of hard-swish. Defaults to False.
+
+    Returns
+    -------
+    keras.Model
+        a model from `img_input` to a tensor of shape ``(B, H/2, W/2, 16)``
+    """
 
     channel_axis = 1 if backend.image_data_format() == "channels_first" else -1
 
@@ -174,7 +213,28 @@ def MobileNetV3SmallBlock(
     alpha=1.0,
     minimalistic=False,
 ):
-    """Prepares a MobileNetV3Small downsampling block."""
+    """Prepares a MobileNetV3Small downsampling block.
+
+    Each block downsamples once (stride 2) and consists of 1 (block 0), 2 (block 1), 5 (block 2)
+    or 3 (block 3) inverted residual blocks, with output channels (before `alpha`) 16, 24, 48 and
+    96 respectively.
+
+    Parameters
+    ----------
+    block_id : int
+        the block index in 0..3. Any value other than 0, 1 or 2 builds block 3.
+    input_tensor : keras.KerasTensor
+        input tensor of the block, e.g. the output of the previous block
+    alpha : float, optional
+        the width multiplier applied to the number of filters. Defaults to 1.0.
+    minimalistic : bool, optional
+        if True, uses 3x3 kernels, ReLU and no squeeze-and-excite. Defaults to False.
+
+    Returns
+    -------
+    keras.Model
+        a model from `input_tensor` to the block output, named ``MobileNetV3SmallBlock<id>``
+    """
 
     def depth(d):
         return _depth(d * alpha)
@@ -217,7 +277,28 @@ def MobileNetV3LargeBlock(
     alpha=1.0,
     minimalistic=False,
 ):
-    """Prepares a MobileNetV3Large downsampling block."""
+    """Prepares a MobileNetV3Large downsampling block.
+
+    Each block downsamples once (stride 2) and consists of 3 inverted residual blocks (blocks 0,
+    1, 3 and 4) or 6 (block 2). Output channels (before `alpha`) are 24, 40, 112, 160 and 320 for
+    blocks 0 to 4 respectively. Block 4 is an MT addition not in the original MobileNetV3.
+
+    Parameters
+    ----------
+    block_id : int
+        the block index in 0..4. Any value other than 0, 1, 2 or 3 builds block 4.
+    input_tensor : keras.KerasTensor
+        input tensor of the block, e.g. the output of the previous block
+    alpha : float, optional
+        the width multiplier applied to the number of filters. Defaults to 1.0.
+    minimalistic : bool, optional
+        if True, uses 3x3 kernels, ReLU and no squeeze-and-excite. Defaults to False.
+
+    Returns
+    -------
+    keras.Model
+        a model from `input_tensor` to the block output, named ``MobileNetV3LargeBlock<id>``
+    """
 
     def depth(d):
         return _depth(d * alpha)
@@ -270,7 +351,52 @@ def MobileNetV3Mixer(
     model_type: str = "Large",  # only 'Small' or 'Large' are accepted
     minimalistic=False,
 ):
-    """Prepares a MobileNetV3 mixer block."""
+    """Prepares a MobileNetV3 mixer block, turning the feature grid into a global feature.
+
+    The behaviour depends on ``params.variant``:
+
+    - ``"mobilenet"``: the original head (1x1 conv, BatchNorm, activation, global average
+      pooling, then a 1x1 conv to `last_point_ch` channels). Output shape ``(B, 1, 1, C)``.
+    - ``"maxpool"``: global max pooling, output shape ``(B, C)``.
+    - ``"mhapool"``: a cascade of :class:`~mt.keras.layers.MHAPool2D` layers (each preceded by a
+      LayerNormalization) until the grid reaches 1x1, configured by
+      ``params.mhapool_cascade_params``. After ``max_num_pooling_layers`` layers, global max
+      pooling is used. Requires channels-last data.
+
+    Parameters
+    ----------
+    input_tensor : keras.KerasTensor
+        the feature grid, shape ``(B, H, W, C)``
+    params : mt.base.model.MobileNetV3MixerParams
+        parameters defining the mixer variant
+    last_point_ch : int
+        number of channels of the last 1x1 conv (``"mobilenet"`` variant only); multiplied by
+        `alpha` when ``alpha > 1``
+    alpha : float, optional
+        the width multiplier. Defaults to 1.0.
+    model_type : {'Small', 'Large'}, optional
+        only used to name the model, ``MobileNetV3<model_type>Mixer``. Defaults to ``'Large'``.
+    minimalistic : bool, optional
+        if True, uses ReLU instead of hard-swish. Defaults to False.
+
+    Returns
+    -------
+    keras.Model
+        a model from `input_tensor` to the mixer output
+
+    Raises
+    ------
+    mt.base.model.ModelSyntaxError
+        if the channel count cannot be inferred, the variant is unknown, or ``"mhapool"`` is
+        requested with channels-first data or with invalid ``mhapool_cascade_params``
+
+    Notes
+    -----
+    As written, only the ``"mhapool"`` variant assigns the ``outputs`` list passed to the model;
+    the ``"mobilenet"`` and ``"maxpool"`` variants end up with an unbound ``outputs`` variable
+    (``UnboundLocalError``). In ``"mhapool"`` the per-block ``activation`` is computed but not
+    passed to :class:`~mt.keras.layers.MHAPool2D`.
+    """
 
     x = input_tensor
     channel_axis = 1 if backend.image_data_format() == "channels_first" else -1
@@ -393,7 +519,33 @@ def MobileNetV3Output(
     dropout_rate=0.2,
     classifier_activation="softmax",
 ):
-    """Prepares a MobileNetV3 output block."""
+    """Prepares a MobileNetV3 output block (the classification head or a global pooling).
+
+    Parameters
+    ----------
+    input_tensor : keras.KerasTensor
+        output of the mixer, of shape ``(B, 1, 1, C)`` if `include_top` is True
+    model_type : {'Small', 'Large'}, optional
+        only used to name the model, ``MobileNetV3<model_type>Output``. Defaults to ``'Large'``.
+    include_top : bool, optional
+        if True, the block is ``[Dropout] -> Conv2D(classes, 1) -> Flatten -> Activation``,
+        giving shape ``(B, classes)``. Defaults to True.
+    classes : int, optional
+        number of classes, when `include_top` is True. Defaults to 1000.
+    pooling : {None, 'avg', 'max'}, optional
+        when `include_top` is False, the global pooling to apply. Defaults to None.
+    dropout_rate : float, optional
+        dropout rate before the logits conv when `include_top` is True; no dropout if not
+        positive. Defaults to 0.2.
+    classifier_activation : str or callable, optional
+        activation of the top layer. Defaults to ``"softmax"``.
+
+    Returns
+    -------
+    keras.Model or None
+        the output block model, or None if `include_top` is False and `pooling` is neither
+        ``'avg'`` nor ``'max'``
+    """
 
     x = input_tensor
     if include_top:
@@ -435,14 +587,11 @@ def MobileNetV3Split(
 
     Parameters
     ----------
-    input_shape : tuple
-        Optional shape tuple, to be specified if you would like to use a model with an input image
-        resolution that is not (224, 224, 3). It should have exactly 3 inputs channels
-        (224, 224, 3). You can also omit this option if you would like to infer input_shape from an
-        input_tensor. If you choose to include both input_tensor and input_shape then input_shape
-        will be used if they match, if the shapes do not match then we will throw an error. E.g.
-        `(160, 160, 3)` would be one valid value.
-    alpha : float
+    input_shape : tuple, optional
+        Shape tuple ``(height, width, 3)`` of the input image, with exactly 3 input channels. E.g.
+        ``(160, 160, 3)`` is a valid value. If None, the model accepts images of any size of at
+        least 32x32 (``(None, None, 3)``). There is no ``input_tensor`` argument.
+    alpha : float, optional
         controls the width of the network. This is known as the depth multiplier in the MobileNetV3
         paper, but the name is kept for consistency with MobileNetV1 in Keras.
         - If `alpha` < 1.0, proportionally decreases the number
@@ -451,13 +600,16 @@ def MobileNetV3Split(
             of filters in each layer.
         - If `alpha` = 1, default number of filters from the paper
             are used at each layer.
-          the mobilenetv3 alpha value
-    model_type : {'Small', 'Large'}
-        whether it is the small variant or the large variant
-    max_n_blocks : int
+
+        Defaults to 1.0.
+    model_type : {'Small', 'Large'}, optional
+        whether it is the small variant or the large variant. Any value other than ``'Large'``
+        is treated as ``'Small'``. Defaults to ``'Large'``.
+    max_n_blocks : int, optional
         the maximum number of blocks in the backbone. It is further constrained by the actual
-        maximum number of blocks that the variant can implement.
-    minimalistic : bool
+        maximum number of blocks that the variant can implement (5 for Large, 4 for Small).
+        Defaults to 6.
+    minimalistic : bool, optional
         In addition to large and small models this module also contains so-called minimalistic
         models, these models have the same per-layer dimensions characteristic as MobilenetV3
         however, they do not utilize any of the advanced blocks (squeeze-and-excite units,
@@ -465,9 +617,9 @@ def MobileNetV3Split(
         are much more performant on GPU/DSP.
     mixer_params : mt.base.model.MobileNetV3MixerParams, optional
         parameters for defining the mixer block
-    include_top : bool, default True
+    include_top : bool, optional
         whether to include the fully-connected layer at the top of the network. Only valid if
-        `mixer_params` is not null.
+        `mixer_params` is not null. Defaults to True.
     pooling : str, optional
         Optional pooling mode for feature extraction when `include_top` is False and
         `mixer_params` is not null.
@@ -479,24 +631,44 @@ def MobileNetV3Split(
     classes : int, optional
         Optional number of classes to classify images into, only to be specified if `mixer_params`
         is not null and `include_top` is True.
-    dropout_rate : float
+    dropout_rate : float, optional
         fraction of the input units to drop on the last layer. Only to be specified if
-        `mixer_params` is not null and `include_top` is True.
-    classifier_activation : object
+        `mixer_params` is not null and `include_top` is True. Defaults to 0.2.
+    classifier_activation : object, optional
         A `str` or callable. The activation function to use on the "top" layer. Ignored unless
         `mixer_params` is not null and `include_top` is True. Set `classifier_activation=None` to
         return the logits of the "top" layer. When loading pretrained weights,
         `classifier_activation` can only be `None` or `"softmax"`.
-    output_all : bool
-        If True, the model returns the output tensor of every submodel other than the input layer.
-        Otherwise, it returns the output tensor of the last submodel.
+    output_all : bool, optional
+        If True, the model returns the output tensor of every submodel (the parser included, the
+        input layer excluded). Otherwise, it returns the output tensor of the last submodel.
+        Either way, the outputs are given to Keras as a list. Defaults to False.
     name : str, optional
-        model name, if any. Default to 'MobileNetV3LargeSplit' or 'MobileNetV3SmallSplit'.
+        model name, if any. Defaults to ``'MobilenetV3LargeSplit'`` or ``'MobilenetV3SmallSplit'``
+        (note the lower-case "n").
 
     Returns
     -------
     keras.Model
-        the output MobileNetV3 model split into 5 submodels
+        the output MobileNetV3 model split into submodels: the parser, up to 5 (Large) or 4
+        (Small) blocks, and, if `mixer_params` is given, the mixer and (if it returns a model)
+        the output block. Without `mixer_params` the model stops after the last backbone block.
+
+    Raises
+    ------
+    mt.base.model.ModelSyntaxError
+        if `mixer_params` is not None and not a ``MobileNetV3MixerParams``, or other errors
+        from :func:`MobileNetV3Input`
+
+    Examples
+    --------
+    Building a backbone with 3 blocks needs a Keras installation and is not executed here:
+
+    .. code-block:: python
+
+       from mt.keras.applications import MobileNetV3Split
+       model = MobileNetV3Split((224, 224, 3), model_type="Small", max_n_blocks=3)
+       model.summary()
     """
 
     input_layer = MobileNetV3Input(input_shape=input_shape)

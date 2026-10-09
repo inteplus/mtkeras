@@ -8,6 +8,13 @@ Usage:
     from .ops_compat import ops
 
     result = ops.reshape(x, shape)  # Works with any backend
+
+The exported object ``ops`` exposes a TensorFlow-flavoured subset of operations: ``shape``,
+``reshape``, ``reduce_sum``/``sum``, ``reduce_mean``/``mean``, ``reduce_prod``, ``expand_dims``,
+``concatenate``, ``squeeze``, ``stop_gradient``, ``ones``, ``zeros``, ``constant``, ``cast``,
+``abs``, ``pow``, ``tanh``, ``floor``, ``sqrt``, ``matmul``, ``stack``, ``transpose`` (with a
+``perm`` argument), ``tile``, ``pad`` and ``einsum``. With Keras 3, any other ``keras.ops``
+function is also reachable as an attribute; with Keras 2 only the functions listed above exist.
 """
 
 from .base import keras_source
@@ -17,7 +24,11 @@ if keras_source == "keras3":
     import keras.ops as _keras_ops
 
     class _Keras3OpsWrapper:
-        """Expose TensorFlow-style reduction aliases on top of keras.ops."""
+        """Exposes ``keras.ops`` plus TensorFlow-style aliases (``reduce_*``, ``constant``, ...).
+
+        Unknown attributes are forwarded to ``keras.ops``. ``transpose`` takes ``perm`` (as in
+        TensorFlow) and is forwarded as ``axes``.
+        """
 
         def __getattr__(self, name):
             return getattr(_keras_ops, name)
@@ -48,7 +59,11 @@ else:
     import tensorflow as tf
 
     class _TFOpsWrapper:
-        """Wrapper to expose TensorFlow operations for Keras 2."""
+        """Exposes a fixed subset of TensorFlow operations under ``keras.ops``-like names.
+
+        ``sum``/``mean`` are aliases of ``reduce_sum``/``reduce_mean``, ``concatenate`` is
+        ``tf.concat`` and ``floor`` is ``tf.math.floor``.
+        """
 
         def shape(self, x):
             return tf.shape(x)

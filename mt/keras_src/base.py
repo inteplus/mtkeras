@@ -7,6 +7,30 @@ Supports:
 Configuration:
 - Set KERAS_BACKEND env variable to "tensorflow" or "torch" for Keras 3
 - Set KERAS_SOURCE env variable to "keras3", "keras", "tf_keras", or "tensorflow.keras"
+
+Selection order, evaluated once at import time:
+
+1. If ``KERAS_SOURCE`` is set, that source is used (``ImportError`` if it is not available).
+2. Else if ``KERAS_BACKEND`` is set or ``KERAS_PREFER=keras3``, Keras 3 is tried first, then
+   Keras 2.
+3. Else Keras 3 is tried first, then Keras 2.
+
+Module attributes set at import time
+------------------------------------
+keras_source : str
+    one of ``"keras3"``, ``"keras"``, ``"tf_keras"``, ``"tensorflow.keras"``
+keras_version : str
+    the version string of the selected Keras (the TensorFlow version for ``"tensorflow.keras"``)
+keras_package : module
+    the selected Keras module
+keras_backend : str
+    the backend name; ``"tensorflow"`` for any Keras 2 source
+
+Examples
+--------
+Select Keras 3 with the torch backend (set the variables before the first import)::
+
+    $ KERAS_BACKEND=torch python -c "from mt import keras; print(keras.backend.backend())"
 """
 
 import os
@@ -18,7 +42,11 @@ KERAS_SOURCE_ENV = os.environ.get("KERAS_SOURCE", "").lower()
 
 
 def _detect_keras_2():
-    """Detect Keras 2 availability and version."""
+    """Detects Keras 2 and returns ``(source, version, module)``.
+
+    Uses ``tf_keras`` for TensorFlow >= 2.16, otherwise standalone Keras 2 if installed, otherwise
+    ``tensorflow.keras``. Raises ``ImportError`` if TensorFlow >= 2.16 has no ``tf_keras``.
+    """
     import tensorflow as tf
 
     tf_ver = Version(tf.__version__)
@@ -48,7 +76,7 @@ def _detect_keras_2():
 
 
 def _detect_keras_3():
-    """Detect Keras 3 availability and backend."""
+    """Detects Keras 3 and returns ``("keras3", version, module, backend)``, else ``None``."""
     try:
         import keras
 

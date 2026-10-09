@@ -1,3 +1,5 @@
+"""Keras constraints plus the MT constraint :class:`CenterAround`."""
+
 from .. import constraints as _constraints
 
 for _x, _y in _constraints.__dict__.items():

@@ -24,6 +24,24 @@ from ..ops_compat import ops
 
 
 def conv_block(x, filters=16, kernel_size=3, strides=2):
+    """Applies a Conv2D layer (``"same"`` padding, swish activation) to `x`.
+
+    Parameters
+    ----------
+    x : tensor-like
+        input tensor of shape ``(B, H, W, C)``
+    filters : int, optional
+        number of output channels. Defaults to 16.
+    kernel_size : int or tuple, optional
+        convolution window size. Defaults to 3.
+    strides : int or tuple, optional
+        convolution strides. Defaults to 2.
+
+    Returns
+    -------
+    tensor-like
+        output tensor of shape ``(B, ceil(H/strides), ceil(W/strides), filters)``
+    """
     conv_layer = layers.Conv2D(
         filters, kernel_size, strides=strides, activation="swish", padding="same"
     )
@@ -36,6 +54,34 @@ def conv_block(x, filters=16, kernel_size=3, strides=2):
 def inverted_residual_block(
     x, expanded_channels, output_channels, strides=1, block_id=0
 ):
+    """Applies a MobileNetV2-style inverted residual block (swish, no squeeze-excite) to `x`.
+
+    This is a thin wrapper of ``_inverted_res_block`` of :mod:`mobilenet_v3_split`.
+
+    Parameters
+    ----------
+    x : tensor-like
+        input tensor with a statically known channel count
+    expanded_channels : int
+        number of channels after the expansion; the expansion factor passed down is
+        ``expanded_channels // input_channels`` (integer division)
+    output_channels : int
+        number of output channels
+    strides : int, optional
+        stride of the depthwise convolution. Defaults to 1.
+    block_id : int, optional
+        block index used for layer naming. Must be positive.
+
+    Returns
+    -------
+    tensor-like
+        the output tensor of the block
+
+    Raises
+    ------
+    NotImplementedError
+        if `block_id` is 0
+    """
     if block_id == 0:
         raise NotImplementedError(
             "Zero block id for _inverted_res_block() is not implemented in MobileViT."
@@ -63,6 +109,22 @@ def inverted_residual_block(
 
 
 def mlp(x, hidden_units, dropout_rate):
+    """Applies a stack of Dense (swish) + Dropout layers to `x`.
+
+    Parameters
+    ----------
+    x : tensor-like
+        input tensor whose last axis is the feature axis
+    hidden_units : iterable of int
+        output size of each Dense layer, in order
+    dropout_rate : float
+        rate of the Dropout layer following each Dense layer
+
+    Returns
+    -------
+    tensor-like
+        output tensor, last axis of size ``hidden_units[-1]``
+    """
     for units in hidden_units:
         x = layers.Dense(units, activation="swish")(x)
         x = layers.Dropout(dropout_rate)(x)
@@ -70,6 +132,28 @@ def mlp(x, hidden_units, dropout_rate):
 
 
 def transformer_block(x, transformer_layers, projection_dim, num_heads=2):
+    """Applies `transformer_layers` pre-norm transformer encoder layers to `x`.
+
+    Each layer is: LayerNorm, MultiHeadAttention (``key_dim=projection_dim``, dropout 0.1), skip
+    connection, LayerNorm, an :func:`mlp` of sizes ``[2*C, C]`` (``C`` = last axis of `x`), skip
+    connection.
+
+    Parameters
+    ----------
+    x : tensor-like
+        input tensor of shape ``(B, ..., C)``; attention runs over the second-to-last axis
+    transformer_layers : int
+        number of encoder layers to stack
+    projection_dim : int
+        the ``key_dim`` of the attention layers
+    num_heads : int, optional
+        number of attention heads. Defaults to 2.
+
+    Returns
+    -------
+    tensor-like
+        output tensor with the same shape as `x`
+    """
     for _ in range(transformer_layers):
         # Layer normalization 1.
         x1 = layers.LayerNormalization(epsilon=1e-6)(x)
@@ -94,6 +178,35 @@ def transformer_block(x, transformer_layers, projection_dim, num_heads=2):
 
 
 def mobilevit_block(x, num_blocks, projection_dim, strides=1):
+    """Applies a MobileViT block (local convs, transformer on 2x2 patches, fusion) to `x`.
+
+    The input is projected by two convolutions to `projection_dim` channels, unfolded into
+    ``2x2`` interleaved patches, processed by :func:`transformer_block`, folded back, projected
+    to the input channel count, concatenated with `x` and fused by a final 3x3 convolution to
+    `projection_dim` channels.
+
+    Parameters
+    ----------
+    x : tensor-like
+        input tensor of shape ``(B, H, W, C)`` with static, even `H` and `W`
+    num_blocks : int
+        number of transformer layers
+    projection_dim : int
+        number of channels of the transformer features and of the output
+    strides : int, optional
+        strides of all the convolutions. Defaults to 1; the block assumes 1 for the fold/unfold
+        reshapes to be consistent.
+
+    Returns
+    -------
+    tensor-like
+        output tensor of shape ``(B, H, W, projection_dim)`` when ``strides=1``
+
+    Raises
+    ------
+    mt.base.model.ModelSyntaxError
+        if the height or the width of `x` is not divisible by 2
+    """
     cell_size = 2  # 2x2 for the Transformer block
 
     # Local projection with convolutions.
@@ -170,29 +283,51 @@ def create_mobilevit(
     output_all: bool = False,
     name: tp.Optional[str] = None,
 ):
-    """Prepares a model of submodels which is equivalent to a MobileNetV3 model.
+    """Creates a MobileViT model (convolutional stem, MobileNetV2 blocks and MobileViT blocks).
+
+    The model takes an image of pixel values in ``[0, 255]`` (a ``Rescaling(1/255)`` layer is
+    included) and returns a *list* of feature maps. Spatial sizes shrink by a factor of 2 at
+    the stem and at each of the 4 MV2 down-sampling blocks (total stride 32). The last MobileViT
+    block needs an even size, so the input height and width should be divisible by 64.
 
     Parameters
     ----------
-    input_shape : tuple
-        Optional shape tuple, to be specified if you would like to use a model with an input image
-        resolution that is not (224, 224, 3). It should have exactly 3 inputs channels
-        (224, 224, 3). You can also omit this option if you would like to infer input_shape from an
-        input_tensor. If you choose to include both input_tensor and input_shape then input_shape
-        will be used if they match, if the shapes do not match then we will throw an error. E.g.
-        `(160, 160, 3)` would be one valid value.
-    model_type : {'XXS', 'XS', 'S'}
-        one of the 3 variants introduced in the paper
-    output_all : bool
-        If True, the model returns the output tensor of every block before down-sampling, other
-        than the input layer.  Otherwise, it returns the output tensor of the last block.
+    input_shape : tuple, optional
+        Shape tuple ``(height, width, 3)`` of the input image, passed to
+        :func:`MobileNetV3Input`. It should have exactly 3 input channels. E.g. ``(160, 160, 3)``
+        is a valid value. When None, the default of :func:`MobileNetV3Input` is used.
+    model_type : {'XXS', 'XS', 'S'}, optional
+        one of the 3 variants introduced in the paper. Defaults to ``'XXS'``.
+    output_all : bool, optional
+        If True, the model returns 5 output tensors, one per stage: after the first MV2 block,
+        after the 3 MV2 blocks of the first downsampling stage, and after each of the three
+        MobileViT blocks (the last one followed by a 1x1 conv expansion). Otherwise, it returns
+        a list holding only the output tensor of the last stage. Defaults to False.
     name : str, optional
-        model name, if any. Default to 'MobileViT<model_type>'.
+        model name, if any. Defaults to ``'MobileViT<model_type>'``.
 
     Returns
     -------
     tensorflow.keras.Model
-        the output MobileViT model
+        the MobileViT model, uninitialised and not compiled. Its outputs are a list of 1 tensor
+        (``output_all=False``) or 5 tensors (``output_all=True``).
+
+    Raises
+    ------
+    ValueError
+        if `model_type` is not one of ``'XXS'``, ``'XS'``, ``'S'``
+    mt.base.model.ModelSyntaxError
+        if some intermediate feature map has an odd height or width
+
+    Examples
+    --------
+    Building the model needs a Keras installation and is not executed here:
+
+    .. code-block:: python
+
+       from mt.keras.applications import create_mobilevit
+       model = create_mobilevit((256, 256, 3), model_type="XXS")
+       feats = model(images)  # list with 1 feature map
     """
 
     model_type_id = ["XXS", "XS", "S"].index(model_type)

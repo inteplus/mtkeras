@@ -1,5 +1,22 @@
-"""Module involves upsizing and downsizing images in each axis individually using convolutions of
-residuals."""
+"""Layers that upsize and downsize feature maps using convolutions of residuals ("DUC" layers).
+
+A downsizing layer halves the grid resolution while doubling the number of channels: every 2x2 (or
+1x2 / 2x1) block of pixels is summarised by its average and by residuals around that average. An
+upsizing layer does the reverse, predicting the residuals and adding the average back. The
+channels of a feature map are split into an *image* part (the first ``img_dim`` channels, which are
+averaged when downsizing) and a *residual* part (the remaining ``res_dim`` channels).
+
+Several generations exist, which are not weight-compatible with each other:
+
+- :class:`Downsize2D` / :class:`Upsize2D`: first generation, channels are not split.
+- :class:`Downsize2D_V2` / :class:`Upsize2D_V2`: second generation, with ``img_dim``/``res_dim``.
+- :class:`Downsize2D_V3` (alias :data:`Downsize2D_V4`): downsizes both axes in one layer.
+- :class:`DownsizeX2D`, :class:`DownsizeY2D`, :class:`UpsizeX2D`, :class:`UpsizeY2D`: the fifth
+  generation, working along a single axis each. Chain ``DownsizeX2D`` then ``DownsizeY2D`` (same
+  ``img_dim``/``res_dim``) to downsize both axes; chain ``UpsizeY2D`` then ``UpsizeX2D`` to upsize.
+
+Grids are 4D tensors of shape ``(B, H, W, C)`` (channels last).
+"""
 
 from mt import tp, np
 from .. import layers, initializers, regularizers, constraints
@@ -7,7 +24,43 @@ from ..ops_compat import ops
 
 
 def mirror_all_weights(l_weights: list) -> list:
-    """TBC"""
+    """Mirrors a list of weight arrays so that they fit a layer twice as wide, acting on 2 copies.
+
+    Each array is "doubled" such that a layer with the new weights, fed with 2 concatenated copies
+    of the same input channels, produces 2 concatenated copies of the original output:
+
+    - a 1D array (bias, normalisation parameters) of shape ``(n,)`` is tiled to ``(2n,)``;
+    - a 4D array (convolution kernel) of shape ``(kh, kw, c_in, c_out)`` becomes a block-diagonal
+      array of shape ``(kh, kw, 2*c_in, 2*c_out)`` whose two diagonal blocks are the original
+      kernel and whose off-diagonal blocks are zeros.
+
+    Parameters
+    ----------
+    l_weights : list of numpy.ndarray
+        the weight arrays, e.g. the output of ``layer.get_weights()``
+
+    Returns
+    -------
+    list of numpy.ndarray
+        the mirrored arrays, in the same order
+
+    Raises
+    ------
+    NotImplementedError
+        if an array is neither 1D nor 4D
+
+    Examples
+    --------
+    Not run as a doctest (it requires a Keras installation to import this module); the shapes
+    were checked with NumPy:
+
+    .. code-block:: python
+
+       import numpy as np
+       kernel = np.ones((3, 3, 2, 4))
+       bias = np.ones((4,))
+       [w.shape for w in mirror_all_weights([kernel, bias])]  # [(3, 3, 4, 8), (8,)]
+    """
 
     l_newWeights = []
     for arr in l_weights:
@@ -29,26 +82,33 @@ def mirror_all_weights(l_weights: list) -> list:
 
 
 class DUCLayer(layers.Layer):
-    """Base layer for all DUC layer implementations.
+    """Base layer for all DUC (down/up-sizing using convolutions of residuals) layers.
+
+    It only stores and serialises the convolution options shared by the subclasses, and provides
+    :meth:`get_mirrored_weights`. It is not meant to be used directly; see the module docstring
+    for the list of concrete layers.
 
     Parameters
     ----------
-    kernel_size : int or tuple or list
+    kernel_size : int or tuple or list, optional
         An integer or tuple/list of 2 integers, specifying the height and width of the 2D
         convolution window. Can be a single integer to specify the same value for all spatial
-        dimensions.
-    kernel_initializer : object
-        Initializer for the convolutional kernels.
-    bias_initializer : object
-        Initializer for the convolutional biases.
-    kernel_regularizer : object
-        Regularizer for the convolutional kernels.
-    bias_regularizer : object
-        Regularizer for the convolutional biases.
-    kernel_constraint: object
-        Contraint function applied to the convolutional layer kernels.
-    bias_constraint: object
-        Contraint function applied to the convolutional layer biases.
+        dimensions. Defaults to 3.
+    kernel_initializer : str or object, optional
+        Initializer for the convolutional kernels. Defaults to ``"glorot_uniform"``.
+    bias_initializer : str or object, optional
+        Initializer for the convolutional biases. Defaults to ``"zeros"``.
+    kernel_regularizer : str or object, optional
+        Regularizer for the convolutional kernels. Defaults to None.
+    bias_regularizer : str or object, optional
+        Regularizer for the convolutional biases. Defaults to None.
+    kernel_constraint : str or object, optional
+        Constraint function applied to the convolutional layer kernels. Defaults to None.
+    bias_constraint : str or object, optional
+        Constraint function applied to the convolutional layer biases. Defaults to None.
+    **kwargs : dict
+        keyword arguments passed as-is to :class:`keras.layers.Layer` (e.g. ``name``)
+
     """
 
     def __init__(
@@ -74,6 +134,7 @@ class DUCLayer(layers.Layer):
         self._bias_constraint = constraints.get(bias_constraint)
 
     def get_config(self):
+        """Returns the layer config: the base config plus the convolution options."""
         config = {
             "kernel_size": self._kernel_size,
             "kernel_initializer": initializers.serialize(self._kernel_initializer),
@@ -89,6 +150,13 @@ class DUCLayer(layers.Layer):
     get_config.__doc__ = layers.Layer.get_config.__doc__
 
     def get_mirrored_weights(self):
+        """Returns the current weights of the layer, mirrored by :func:`mirror_all_weights`.
+
+        Returns
+        -------
+        list of numpy.ndarray
+            the mirrored weights, in the order of ``get_weights()``
+        """
         return mirror_all_weights(self.get_weights())
 
 
@@ -97,35 +165,51 @@ class Upsize2D(DUCLayer):
 
     Upsizing means doubling the width and the height and halving the number of channels.
 
-    Input at each grid cell is a pair of `(avg, res)` images at resolution `(H,W,C)`. The pair is
-    transformed to `4*expansion_factor` hidden images and then 4 residual images
-    `(res1, res2, res3, res4)`. Then, `avg` is added to the 4 residual images, forming at each cell
-    a 2x2 block of images `(avg+res1, avg+res2, avg+res3, avg+res4)`. Finally, the new blocks
-    across the whole tensor form a new grid, doubling the height and width. Note that each
-    `avg+resK` image serves as a pair of average and residual images in the higher resolution.
+    Input at each grid cell is a pair of `(avg, res)` images at resolution `(H,W,C)`: the first
+    ``input_dim // 2`` channels are `avg`. The pair is transformed to `4*expansion_factor` hidden
+    images and then 4 residual images `(res1, res2, res3, res4)`. Then, `avg` is added to the 4
+    residual images, forming at each cell a 2x2 block of images
+    `(avg+res1, avg+res2, avg+res3, avg+res4)`. Finally, the new blocks across the whole tensor
+    form a new grid, doubling the height and width. Note that each `avg+resK` image serves as a
+    pair of average and residual images in the higher resolution.
+
+    Input shape
+    -----------
+    ``(B, H, W, input_dim)``
+
+    Output shape
+    ------------
+    ``(B, 2*H, 2*W, input_dim // 2)``
 
     Parameters
     ----------
     input_dim : int
-        the dimensionality of each input pixel. Must be even.
-    expansion_factor : int
-        the coefficient defining the number of hidden images per cell needed.
-    kernel_size : int or tuple or list
+        the dimensionality of each input pixel. Must be even, else a ``ValueError`` is raised.
+    expansion_factor : int, optional
+        the coefficient defining the number of hidden images per cell needed. If it is 1 or less,
+        the expansion convolution is skipped. Defaults to 2.
+    kernel_size : int or tuple or list, optional
         An integer or tuple/list of 2 integers, specifying the height and width of the 2D
         convolution window. Can be a single integer to specify the same value for all spatial
-        dimensions.
-    kernel_initializer : object
-        Initializer for the convolutional kernels.
-    bias_initializer : object
-        Initializer for the convolutional biases.
-    kernel_regularizer : object
-        Regularizer for the convolutional kernels.
-    bias_regularizer : object
-        Regularizer for the convolutional biases.
-    kernel_constraint: object
-        Contraint function applied to the convolutional layer kernels.
-    bias_constraint: object
-        Contraint function applied to the convolutional layer biases.
+        dimensions. Defaults to 3.
+    kernel_initializer : str or object, optional
+        Initializer for the convolutional kernels. Defaults to ``"glorot_uniform"``.
+    bias_initializer : str or object, optional
+        Initializer for the convolutional biases. Defaults to ``"zeros"``.
+    kernel_regularizer : str or object, optional
+        Regularizer for the convolutional kernels. Defaults to None.
+    bias_regularizer : str or object, optional
+        Regularizer for the convolutional biases. Defaults to None.
+    kernel_constraint : str or object, optional
+        Constraint function applied to the convolutional layer kernels. Defaults to None.
+    bias_constraint : str or object, optional
+        Constraint function applied to the convolutional layer biases. Defaults to None.
+    **kwargs : dict
+        keyword arguments passed as-is to :class:`keras.layers.Layer` (e.g. ``name``)
+
+    See Also
+    --------
+    :class:`Downsize2D` : the (nearly) inverse layer.
     """
 
     def __init__(
@@ -191,6 +275,7 @@ class Upsize2D(DUCLayer):
         )
 
     def call(self, x, training: bool = False):
+        """Upsizes `x` of shape ``(B, H, W, input_dim)`` to ``(B, 2H, 2W, input_dim // 2)``."""
         x_avg = x[:, :, :, : self._input_dim // 2]
 
         if self._expansion_factor > 1:  # expand
@@ -235,6 +320,13 @@ class Upsize2D(DUCLayer):
     call.__doc__ = DUCLayer.call.__doc__
 
     def compute_output_shape(self, input_shape):
+        """Returns the output shape ``(B, 2H, 2W, input_dim // 2)``.
+
+        Raises
+        ------
+        ValueError
+            if `input_shape` is not 4D or its channel size differs from ``input_dim``
+        """
         if len(input_shape) != 4:
             raise ValueError(
                 f"Expected input shape to be (B, H, W, C). Got: {input_shape}."
@@ -256,6 +348,7 @@ class Upsize2D(DUCLayer):
     compute_output_shape.__doc__ = DUCLayer.compute_output_shape.__doc__
 
     def get_config(self):
+        """Returns the layer config: the base config plus ``input_dim``, ``expansion_factor``."""
         config = {
             "input_dim": self._input_dim,
             "expansion_factor": self._expansion_factor,
@@ -271,30 +364,47 @@ class Downsize2D(DUCLayer):
 
     Downsizing means halving the width and the height and doubling the number of channels.
 
-    This layer is supposed to be nearly an inverse of the Upsize2D layer.
+    Each 2x2 block of pixels is summarised by its average (`input_dim` channels) and by the 4
+    residuals of its pixels around that average (4*`input_dim` channels). Both are fed to the
+    (optional expansion and the) projection convolution, which outputs `input_dim` residual
+    channels in ``(0, 1)`` (sigmoid). The output is the average concatenated with these channels.
+
+    This layer is supposed to be nearly an inverse of the :class:`Upsize2D` layer.
+
+    Input shape
+    -----------
+    ``(B, H, W, input_dim)`` with even ``H`` and ``W``.
+
+    Output shape
+    ------------
+    ``(B, H // 2, W // 2, 2 * input_dim)``
 
     Parameters
     ----------
     input_dim : int
         the dimensionality (number of channels) of each input pixel
-    expansion_factor : int
-        the coefficient defining the number of hidden images per cell needed.
-    kernel_size : int or tuple or list
+    expansion_factor : int, optional
+        the coefficient defining the number of hidden images per cell needed. If it is 1 or less,
+        the expansion convolution is skipped. Defaults to 2.
+    kernel_size : int or tuple or list, optional
         An integer or tuple/list of 2 integers, specifying the height and width of the 2D
         convolution window. Can be a single integer to specify the same value for all spatial
-        dimensions.
-    kernel_initializer : object
-        Initializer for the convolutional kernels.
-    bias_initializer : object
-        Initializer for the convolutional biases.
-    kernel_regularizer : object
-        Regularizer for the convolutional kernels.
-    bias_regularizer : object
-        Regularizer for the convolutional biases.
-    kernel_constraint: object
-        Contraint function applied to the convolutional layer kernels.
-    bias_constraint: object
-        Contraint function applied to the convolutional layer biases.
+        dimensions. Defaults to 3.
+    kernel_initializer : str or object, optional
+        Initializer for the convolutional kernels. Defaults to ``"glorot_uniform"``.
+    bias_initializer : str or object, optional
+        Initializer for the convolutional biases. Defaults to ``"zeros"``.
+    kernel_regularizer : str or object, optional
+        Regularizer for the convolutional kernels. Defaults to None.
+    bias_regularizer : str or object, optional
+        Regularizer for the convolutional biases. Defaults to None.
+    kernel_constraint : str or object, optional
+        Constraint function applied to the convolutional layer kernels. Defaults to None.
+    bias_constraint : str or object, optional
+        Constraint function applied to the convolutional layer biases. Defaults to None.
+    **kwargs : dict
+        keyword arguments passed as-is to :class:`keras.layers.Layer` (e.g. ``name``)
+
     """
 
     def __init__(
@@ -355,6 +465,7 @@ class Downsize2D(DUCLayer):
         )
 
     def call(self, x, training: bool = False):
+        """Downsizes `x` of shape ``(B, H, W, input_dim)`` to ``(B, H//2, W//2, 2*input_dim)``."""
         # reshape
         input_shape = ops.shape(x)
         x = ops.reshape(
@@ -404,6 +515,14 @@ class Downsize2D(DUCLayer):
     call.__doc__ = DUCLayer.call.__doc__
 
     def compute_output_shape(self, input_shape):
+        """Returns the output shape ``(B, H // 2, W // 2, 2 * input_dim)``.
+
+        Raises
+        ------
+        ValueError
+            if `input_shape` is not 4D, has an odd height or width, or a channel size other than
+            ``input_dim``
+        """
         if len(input_shape) != 4:
             raise ValueError(
                 f"Expected input shape to be (B, H, W, C). Got: {input_shape}."
@@ -432,6 +551,7 @@ class Downsize2D(DUCLayer):
     compute_output_shape.__doc__ = DUCLayer.compute_output_shape.__doc__
 
     def get_config(self):
+        """Returns the layer config: the base config plus ``input_dim``, ``expansion_factor``."""
         config = {
             "input_dim": self._input_dim,
             "expansion_factor": self._expansion_factor,
@@ -450,36 +570,53 @@ class Downsize2D_V2(DUCLayer):
 
     Downsizing means halving the width and the height and doubling the number of channels.
 
-    This layer is supposed to be nearly an inverse of the Upsize2D layer.
+    Input dimensionality consists of image dimensionality (`img_dim`, the first channels) and
+    residual dimensionality (`res_dim`, the remaining channels). In every 2x2 block, only the
+    image channels are averaged; the residuals around that average and the pixels' residual
+    channels are then fed to the (optional expansion and the) 1x1 projection convolution, which
+    outputs ``img_dim + 2*res_dim`` channels in ``(0, 1)`` (sigmoid). The output is the average
+    concatenated with the projection.
 
-    Input dimensionality consists of image dimensionality and residual dimensionality.
+    This layer is supposed to be nearly an inverse of the :class:`Upsize2D_V2` layer.
+
+    Input shape
+    -----------
+    ``(B, H, W, img_dim + res_dim)`` with even ``H`` and ``W``.
+
+    Output shape
+    ------------
+    ``(B, H // 2, W // 2, 2 * (img_dim + res_dim))``
 
     Parameters
     ----------
     img_dim : int
-        the image dimensionality
+        the image dimensionality, i.e. the number of leading channels that are averaged
     res_dim : int
-        the residual dimensionality
-    expansion_factor : int
-        the coefficient defining the number of hidden images per cell needed.
-    kernel_size : int or tuple or list
+        the residual dimensionality, i.e. the number of the remaining input channels
+    expansion_factor : int, optional
+        the coefficient defining the number of hidden images per cell needed. If it is 1 or less,
+        the expansion convolution is skipped. Defaults to 2.
+    kernel_size : int or tuple or list, optional
         An integer or tuple/list of 2 integers, specifying the height and width of the 2D
         convolution window. Can be a single integer to specify the same value for all spatial
-        dimensions.
-    kernel_initializer : object
-        Initializer for the convolutional kernels.
-    bias_initializer : object
-        Initializer for the convolutional biases.
-    kernel_regularizer : object
-        Regularizer for the convolutional kernels.
-    bias_regularizer : object
-        Regularizer for the convolutional biases.
-    kernel_constraint: object
-        Contraint function applied to the convolutional layer kernels.
-    bias_constraint: object
-        Contraint function applied to the convolutional layer biases.
-    projection_uses_bias : bool
-        whether or not the projection convolution layer uses a bias vector
+        dimensions. Defaults to 1.
+    kernel_initializer : str or object, optional
+        Initializer for the convolutional kernels. Defaults to ``"glorot_uniform"``.
+    bias_initializer : str or object, optional
+        Initializer for the convolutional biases. Defaults to ``"zeros"``.
+    kernel_regularizer : str or object, optional
+        Regularizer for the convolutional kernels. Defaults to None.
+    bias_regularizer : str or object, optional
+        Regularizer for the convolutional biases. Defaults to None.
+    kernel_constraint : str or object, optional
+        Constraint function applied to the convolutional layer kernels. Defaults to None.
+    bias_constraint : str or object, optional
+        Constraint function applied to the convolutional layer biases. Defaults to None.
+    projection_uses_bias : bool, optional
+        whether or not the projection convolution layer uses a bias vector. Defaults to True.
+    **kwargs : dict
+        keyword arguments passed as-is to :class:`keras.layers.Layer` (e.g. ``name``)
+
     """
 
     def __init__(
@@ -545,6 +682,7 @@ class Downsize2D_V2(DUCLayer):
         )
 
     def call(self, x, training: bool = False):
+        """Downsizes `x` of shape ``(B, H, W, img_dim + res_dim)`` by 2 along both axes."""
         # reshape
         I = self._img_dim
         R = self._res_dim
@@ -582,6 +720,13 @@ class Downsize2D_V2(DUCLayer):
     call.__doc__ = DUCLayer.call.__doc__
 
     def compute_output_shape(self, input_shape):
+        """Returns the output shape ``(B, H // 2, W // 2, 2 * (img_dim + res_dim))``.
+
+        Raises
+        ------
+        ValueError
+            if `input_shape` is not 4D, has an odd height or width, or a wrong channel size
+        """
         if len(input_shape) != 4:
             raise ValueError(
                 f"Expected input shape to be (B, H, W, C). Got: {input_shape}."
@@ -610,6 +755,7 @@ class Downsize2D_V2(DUCLayer):
     compute_output_shape.__doc__ = DUCLayer.compute_output_shape.__doc__
 
     def get_config(self):
+        """Returns the layer config: the base config plus the V2 constructor arguments."""
         config = {
             "img_dim": self._img_dim,
             "res_dim": self._res_dim,
@@ -634,33 +780,56 @@ class Upsize2D_V2(DUCLayer):
     across the whole tensor form a new grid, doubling the height and width. Note that each
     `avg+resK` image serves as a pair of average and residual images in the higher resolution.
 
-    Input dimensionality consists of image dimensionality and residual dimensionality. It must be
-    even.
+    Input dimensionality consists of image dimensionality and residual dimensionality. Their sum
+    must be even. The output keeps `img_dim` image channels and has ``(res_dim - img_dim) // 2``
+    residual channels. This inverts the channel layout of :class:`Downsize2D_V2`, whose output has
+    ``img_dim`` image channels and ``img_dim + 2*r`` residual channels for ``r`` input residual
+    channels.
+
+    Input shape
+    -----------
+    ``(B, H, W, img_dim + res_dim)``
+
+    Output shape
+    ------------
+    ``(B, 2*H, 2*W, (img_dim + res_dim) // 2)``
 
     Parameters
     ----------
     img_dim : int
-        the image dimensionality.
+        the image dimensionality, i.e. the number of leading channels that are averaged
     res_dim : int
-        the residual dimensionality.
-    expansion_factor : int
-        the coefficient defining the number of hidden images per cell needed.
-    kernel_size : int or tuple or list
+        the residual dimensionality of the input, i.e. the number of the remaining input channels
+    expansion_factor : int, optional
+        the coefficient defining the number of hidden images per cell needed. If it is 1 or less,
+        the expansion convolution is skipped. Defaults to 2.
+    kernel_size : int or tuple or list, optional
         An integer or tuple/list of 2 integers, specifying the height and width of the 2D
         convolution window. Can be a single integer to specify the same value for all spatial
-        dimensions.
-    kernel_initializer : object
-        Initializer for the convolutional kernels.
-    bias_initializer : object
-        Initializer for the convolutional biases.
-    kernel_regularizer : object
-        Regularizer for the convolutional kernels.
-    bias_regularizer : object
-        Regularizer for the convolutional biases.
-    kernel_constraint: object
-        Contraint function applied to the convolutional layer kernels.
-    bias_constraint: object
-        Contraint function applied to the convolutional layer biases.
+        dimensions. Defaults to 3.
+    kernel_initializer : str or object, optional
+        Initializer for the convolutional kernels. Defaults to ``"glorot_uniform"``.
+    bias_initializer : str or object, optional
+        Initializer for the convolutional biases. Defaults to ``"zeros"``.
+    kernel_regularizer : str or object, optional
+        Regularizer for the convolutional kernels. Defaults to None.
+    bias_regularizer : str or object, optional
+        Regularizer for the convolutional biases. Defaults to None.
+    kernel_constraint : str or object, optional
+        Constraint function applied to the convolutional layer kernels. Defaults to None.
+    bias_constraint : str or object, optional
+        Constraint function applied to the convolutional layer biases. Defaults to None.
+    **kwargs : dict
+        keyword arguments passed as-is to :class:`keras.layers.Layer` (e.g. ``name``)
+
+    Raises
+    ------
+    ValueError
+        at construction, if ``img_dim + res_dim`` is odd
+
+    See Also
+    --------
+    :class:`Downsize2D_V2` : the (nearly) inverse layer.
     """
 
     def __init__(
@@ -729,6 +898,7 @@ class Upsize2D_V2(DUCLayer):
         )
 
     def call(self, x, training: bool = False):
+        """Upsizes `x` of shape ``(B, H, W, img_dim + res_dim)`` by 2 along both axes."""
         I = self._img_dim
         R = (self._res_dim - self._img_dim) // 2
         input_shape = ops.shape(x)
@@ -763,6 +933,13 @@ class Upsize2D_V2(DUCLayer):
     call.__doc__ = DUCLayer.call.__doc__
 
     def compute_output_shape(self, input_shape):
+        """Returns the output shape ``(B, 2H, 2W, (img_dim + res_dim) // 2)``.
+
+        Raises
+        ------
+        ValueError
+            if `input_shape` is not 4D or has a wrong channel size
+        """
         if len(input_shape) != 4:
             raise ValueError(
                 f"Expected input shape to be (B, H, W, C). Got: {input_shape}."
@@ -784,6 +961,7 @@ class Upsize2D_V2(DUCLayer):
     compute_output_shape.__doc__ = DUCLayer.compute_output_shape.__doc__
 
     def get_config(self):
+        """Returns the base config plus ``img_dim``, ``res_dim`` and ``expansion_factor``."""
         config = {
             "img_dim": self._img_dim,
             "res_dim": self._res_dim,
@@ -803,34 +981,56 @@ class Downsize2D_V3(DUCLayer):
 
     Downsizing means halving the width and the height and doubling the number of channels.
 
-    TBC
+    The downsizing is done in two successive steps, each merging pairs of consecutive pixels into
+    their average and difference (over the image channels): first along the width, then along the
+    height. After the first step, if ``res_dim > 0``, the channels are projected by a small
+    convolutional sub-network to ``RR = (img_dim + 3*res_dim + 1) // 2`` channels (with an extra
+    expansion layer if ``res_dim > img_dim``). The second step ends with a 1x1 projection to
+    ``img_dim + 2*res_dim`` channels in ``(0, 1)`` (sigmoid). The output is the final average
+    concatenated with this projection. If ``res_dim == 0``, the intermediate sub-network is
+    skipped.
 
-    This layer is supposed to be nearly an inverse of the Upsize2D layer.
+    This layer is supposed to be nearly an inverse of the :class:`Upsize2D` layer.
 
-    Input dimensionality consists of image dimensionality and residual dimensionality.
+    Input dimensionality consists of image dimensionality and residual dimensionality. In this
+    module, ``Downsize2D_V4`` is an alias of this class.
+
+    Input shape
+    -----------
+    ``(B, H, W, img_dim + res_dim)`` with even ``H`` and ``W``.
+
+    Output shape
+    ------------
+    ``(B, H // 2, W // 2, 2 * (img_dim + res_dim))``
 
     Parameters
     ----------
     img_dim : int
-        the image dimensionality
+        the image dimensionality, i.e. the number of leading channels that are averaged
     res_dim : int
-        the residual dimensionality
-    kernel_size : int or tuple or list
+        the residual dimensionality, i.e. the number of the remaining input channels
+    kernel_size : int or tuple or list, optional
         An integer or tuple/list of 2 integers, specifying the height and width of the 2D
         convolution window. Can be a single integer to specify the same value for all spatial
-        dimensions.
-    kernel_initializer : object
-        Initializer for the convolutional kernels.
-    bias_initializer : object
-        Initializer for the convolutional biases.
-    kernel_regularizer : object
-        Regularizer for the convolutional kernels.
-    bias_regularizer : object
-        Regularizer for the convolutional biases.
-    kernel_constraint: object
-        Contraint function applied to the convolutional layer kernels.
-    bias_constraint: object
-        Contraint function applied to the convolutional layer biases.
+        dimensions. Defaults to 1.
+    kernel_initializer : str or object, optional
+        Initializer for the convolutional kernels. Defaults to ``"glorot_uniform"``.
+    bias_initializer : str or object, optional
+        Initializer for the convolutional biases. Defaults to ``"zeros"``.
+    kernel_regularizer : str or object, optional
+        Regularizer for the convolutional kernels. Defaults to None.
+    bias_regularizer : str or object, optional
+        Regularizer for the convolutional biases. Defaults to None.
+    kernel_constraint : str or object, optional
+        Constraint function applied to the convolutional layer kernels. Defaults to None.
+    bias_constraint : str or object, optional
+        Constraint function applied to the convolutional layer biases. Defaults to None.
+    **kwargs : dict
+        keyword arguments passed as-is to :class:`keras.layers.Layer` (e.g. ``name``)
+
+    See Also
+    --------
+    :class:`DownsizeX2D`, :class:`DownsizeY2D` : the same operation split into two layers.
     """
 
     def __init__(
@@ -921,6 +1121,7 @@ class Downsize2D_V3(DUCLayer):
         )
 
     def call(self, x, training: bool = False):
+        """Downsizes `x` of shape ``(B, H, W, img_dim + res_dim)`` by 2 along both axes."""
         # shape
         I = self._img_dim
         R = self._res_dim
@@ -971,6 +1172,13 @@ class Downsize2D_V3(DUCLayer):
     call.__doc__ = DUCLayer.call.__doc__
 
     def compute_output_shape(self, input_shape):
+        """Returns the output shape ``(B, H // 2, W // 2, 2 * (img_dim + res_dim))``.
+
+        Raises
+        ------
+        ValueError
+            if `input_shape` is not 4D, has an odd height or width, or a wrong channel size
+        """
         if len(input_shape) != 4:
             raise ValueError(
                 f"Expected input shape to be (B, H, W, C). Got: {input_shape}."
@@ -999,6 +1207,7 @@ class Downsize2D_V3(DUCLayer):
     compute_output_shape.__doc__ = DUCLayer.compute_output_shape.__doc__
 
     def get_config(self):
+        """Returns the layer config: the base config plus ``img_dim`` and ``res_dim``."""
         config = {
             "img_dim": self._img_dim,
             "res_dim": self._res_dim,
@@ -1016,38 +1225,38 @@ Downsize2D_V4 = Downsize2D_V3  # to be removed in future
 
 
 class DUCLayerV5(DUCLayer):
-    """Downsizing along the x-axis and the y-axis using convolutions of residuals.
+    """Base layer of the single-axis DUC layers (:class:`DownsizeX2D` and friends).
 
-    Downsizing means halving the width and the height and doubling the number of channels.
-
-    TBC
-
-    This layer is supposed to be nearly an inverse of the Upsize2D layer.
-
-    Input dimensionality consists of image dimensionality and residual dimensionality.
+    The input has ``img_dim + res_dim`` channels (image channels first). The layer derives the
+    channel counts used by the subclasses: ``RX`` and ``RY``, the residual dimensionalities after
+    downsizing along x and then along y. If ``res_dim == 0`` they are both ``img_dim``; otherwise
+    ``RX = (img_dim + 3*res_dim + 1) // 2`` and ``RY = img_dim + 2*res_dim``.
 
     Parameters
     ----------
     img_dim : int
-        the image dimensionality
+        the image dimensionality, i.e. the number of leading channels that are averaged
     res_dim : int
-        the residual dimensionality
-    kernel_size : int or tuple or list
+        the residual dimensionality, i.e. the number of the remaining input channels
+    kernel_size : int or tuple or list, optional
         An integer or tuple/list of 2 integers, specifying the height and width of the 2D
         convolution window. Can be a single integer to specify the same value for all spatial
-        dimensions.
-    kernel_initializer : object
-        Initializer for the convolutional kernels.
-    bias_initializer : object
-        Initializer for the convolutional biases.
-    kernel_regularizer : object
-        Regularizer for the convolutional kernels.
-    bias_regularizer : object
-        Regularizer for the convolutional biases.
-    kernel_constraint: object
-        Contraint function applied to the convolutional layer kernels.
-    bias_constraint: object
-        Contraint function applied to the convolutional layer biases.
+        dimensions. Defaults to 1.
+    kernel_initializer : str or object, optional
+        Initializer for the convolutional kernels. Defaults to ``"glorot_uniform"``.
+    bias_initializer : str or object, optional
+        Initializer for the convolutional biases. Defaults to ``"zeros"``.
+    kernel_regularizer : str or object, optional
+        Regularizer for the convolutional kernels. Defaults to None.
+    bias_regularizer : str or object, optional
+        Regularizer for the convolutional biases. Defaults to None.
+    kernel_constraint : str or object, optional
+        Constraint function applied to the convolutional layer kernels. Defaults to None.
+    bias_constraint : str or object, optional
+        Constraint function applied to the convolutional layer biases. Defaults to None.
+    **kwargs : dict
+        keyword arguments passed as-is to :class:`keras.layers.Layer` (e.g. ``name``)
+
     """
 
     def __init__(
@@ -1084,6 +1293,7 @@ class DUCLayerV5(DUCLayer):
             self.RY = img_dim + res_dim * 2
 
     def get_config(self):
+        """Returns the layer config: the base config plus ``img_dim`` and ``res_dim``."""
         config = {
             "img_dim": self.I,
             "res_dim": self.R,
@@ -1095,38 +1305,60 @@ class DUCLayerV5(DUCLayer):
 
 
 class DownsizeX2D(DUCLayerV5):
-    """Downsizing along the x-axis and the y-axis using convolutions of residuals.
+    """Downsizing along the x-axis (the width) only, using convolutions of residuals.
 
-    Downsizing means halving the width and the height and doubling the number of channels.
+    This layer halves the *width* and does not change the height. Pairs of horizontally
+    consecutive pixels are merged into their average and difference; when ``res_dim > 0`` the
+    residual channels are computed by a small sub-network (with an expansion layer if
+    ``res_dim > img_dim``, then a sigmoid projection to ``RX`` channels).
 
-    TBC
+    The family is designed so that, for the same ``img_dim`` and ``res_dim`` (I and R below; RX
+    and RY as in :class:`DUCLayerV5`), the shapes chain as follows::
 
-    This layer is supposed to be nearly an inverse of the Upsize2D layer.
+        DownsizeX2D: (B, H,   W,   I+R ) -> (B, H,   W/2, I+RX)
+        DownsizeY2D: (B, H,   W/2, I+RX) -> (B, H/2, W/2, I+RY)
+        UpsizeY2D:   (B, H/2, W/2, I+RY) -> (B, H,   W/2, I+RX)
+        UpsizeX2D:   (B, H,   W/2, I+RX) -> (B, H,   W,   I+R )
 
-    Input dimensionality consists of image dimensionality and residual dimensionality.
+    Dimensions marked ``/2`` must be even for the downsizing layers. When ``res_dim == 0``,
+    ``RX = RY = img_dim``.
+
+    Input shape
+    -----------
+    ``(B, H, W, img_dim + res_dim)`` with even ``W``.
+
+    Output shape
+    ------------
+    ``(B, H, W // 2, img_dim + RX)`` (``2 * img_dim`` channels when ``res_dim == 0``).
 
     Parameters
     ----------
     img_dim : int
-        the image dimensionality
+        the image dimensionality, i.e. the number of leading channels that are averaged
     res_dim : int
-        the residual dimensionality
-    kernel_size : int or tuple or list
+        the residual dimensionality, i.e. the number of the remaining input channels
+    kernel_size : int or tuple or list, optional
         An integer or tuple/list of 2 integers, specifying the height and width of the 2D
         convolution window. Can be a single integer to specify the same value for all spatial
-        dimensions.
-    kernel_initializer : object
-        Initializer for the convolutional kernels.
-    bias_initializer : object
-        Initializer for the convolutional biases.
-    kernel_regularizer : object
-        Regularizer for the convolutional kernels.
-    bias_regularizer : object
-        Regularizer for the convolutional biases.
-    kernel_constraint: object
-        Contraint function applied to the convolutional layer kernels.
-    bias_constraint: object
-        Contraint function applied to the convolutional layer biases.
+        dimensions. Defaults to 1.
+    kernel_initializer : str or object, optional
+        Initializer for the convolutional kernels. Defaults to ``"glorot_uniform"``.
+    bias_initializer : str or object, optional
+        Initializer for the convolutional biases. Defaults to ``"zeros"``.
+    kernel_regularizer : str or object, optional
+        Regularizer for the convolutional kernels. Defaults to None.
+    bias_regularizer : str or object, optional
+        Regularizer for the convolutional biases. Defaults to None.
+    kernel_constraint : str or object, optional
+        Constraint function applied to the convolutional layer kernels. Defaults to None.
+    bias_constraint : str or object, optional
+        Constraint function applied to the convolutional layer biases. Defaults to None.
+    **kwargs : dict
+        keyword arguments passed as-is to :class:`keras.layers.Layer` (e.g. ``name``)
+
+    See Also
+    --------
+    :class:`DownsizeY2D`, :class:`UpsizeX2D`, :class:`Downsize2D_V3`
     """
 
     def __init__(
@@ -1187,6 +1419,7 @@ class DownsizeX2D(DUCLayerV5):
             )
 
     def call(self, x, training: bool = False):
+        """Halves the width of `x`, shape ``(B, H, W, I+R)`` to ``(B, H, W//2, I+RX)``."""
         # shape
         input_shape = ops.shape(x)
         B = input_shape[0]
@@ -1218,38 +1451,62 @@ class DownsizeX2D(DUCLayerV5):
 
 
 class UpsizeX2D(DUCLayerV5):
-    """Downsizing along the x-axis and the y-axis using convolutions of residuals.
+    """Upsizing along the x-axis (the width) only, using convolutions of residuals.
 
-    Downsizing means halving the width and the height and doubling the number of channels.
+    This layer doubles the *width* and does not change the height. When ``res_dim > 0``, a
+    sub-network predicts, from the whole input, a residual ``d`` (``img_dim + res_dim`` channels,
+    tanh) and extra residual channels (``res_dim`` channels, sigmoid). The average ``a`` is the
+    first ``img_dim`` input channels concatenated with the extra channels; the two output pixels
+    are ``a + d`` and ``a - d``, interleaved along the width. When ``res_dim == 0`` the layer only
+    reshapes the input, splitting its channels into 2 pixels.
 
-    TBC
+    The family is designed so that, for the same ``img_dim`` and ``res_dim`` (I and R below; RX
+    and RY as in :class:`DUCLayerV5`), the shapes chain as follows::
 
-    This layer is supposed to be nearly an inverse of the Upsize2D layer.
+        DownsizeX2D: (B, H,   W,   I+R ) -> (B, H,   W/2, I+RX)
+        DownsizeY2D: (B, H,   W/2, I+RX) -> (B, H/2, W/2, I+RY)
+        UpsizeY2D:   (B, H/2, W/2, I+RY) -> (B, H,   W/2, I+RX)
+        UpsizeX2D:   (B, H,   W/2, I+RX) -> (B, H,   W,   I+R )
 
-    Input dimensionality consists of image dimensionality and residual dimensionality.
+    Dimensions marked ``/2`` must be even for the downsizing layers. When ``res_dim == 0``,
+    ``RX = RY = img_dim``.
+
+    Input shape
+    -----------
+    ``(B, H, W, img_dim + RX)`` (``2 * img_dim`` channels when ``res_dim == 0``).
+
+    Output shape
+    ------------
+    ``(B, H, 2 * W, img_dim + res_dim)``
 
     Parameters
     ----------
     img_dim : int
-        the image dimensionality
+        the image dimensionality, i.e. the number of leading channels that are averaged
     res_dim : int
-        the residual dimensionality
-    kernel_size : int or tuple or list
+        the residual dimensionality, i.e. the number of the remaining input channels
+    kernel_size : int or tuple or list, optional
         An integer or tuple/list of 2 integers, specifying the height and width of the 2D
         convolution window. Can be a single integer to specify the same value for all spatial
-        dimensions.
-    kernel_initializer : object
-        Initializer for the convolutional kernels.
-    bias_initializer : object
-        Initializer for the convolutional biases.
-    kernel_regularizer : object
-        Regularizer for the convolutional kernels.
-    bias_regularizer : object
-        Regularizer for the convolutional biases.
-    kernel_constraint: object
-        Contraint function applied to the convolutional layer kernels.
-    bias_constraint: object
-        Contraint function applied to the convolutional layer biases.
+        dimensions. Defaults to 3.
+    kernel_initializer : str or object, optional
+        Initializer for the convolutional kernels. Defaults to ``"glorot_uniform"``.
+    bias_initializer : str or object, optional
+        Initializer for the convolutional biases. Defaults to ``"zeros"``.
+    kernel_regularizer : str or object, optional
+        Regularizer for the convolutional kernels. Defaults to None.
+    bias_regularizer : str or object, optional
+        Regularizer for the convolutional biases. Defaults to None.
+    kernel_constraint : str or object, optional
+        Constraint function applied to the convolutional layer kernels. Defaults to None.
+    bias_constraint : str or object, optional
+        Constraint function applied to the convolutional layer biases. Defaults to None.
+    **kwargs : dict
+        keyword arguments passed as-is to :class:`keras.layers.Layer` (e.g. ``name``)
+
+    See Also
+    --------
+    :class:`DownsizeX2D`, :class:`UpsizeY2D`
     """
 
     def __init__(
@@ -1322,6 +1579,7 @@ class UpsizeX2D(DUCLayerV5):
             )
 
     def call(self, x, training: bool = False):
+        """Doubles the width of `x`, shape ``(B, H, W, I+RX)`` to ``(B, H, 2W, I+R)``."""
         # shape
         input_shape = ops.shape(x)
         B = input_shape[0]
@@ -1349,38 +1607,60 @@ class UpsizeX2D(DUCLayerV5):
 
 
 class DownsizeY2D(DUCLayerV5):
-    """Downsizing along the x-axis and the y-axis using convolutions of residuals.
+    """Downsizing along the y-axis (the height) only, using convolutions of residuals.
 
-    Downsizing means halving the width and the height and doubling the number of channels.
+    This layer halves the *height* and does not change the width. It expects the output of
+    :class:`DownsizeX2D`: it merges pairs of vertically consecutive pixels into their average and
+    difference over all ``img_dim + RX`` channels and projects them (sigmoid) to ``RY`` residual
+    channels, with an expansion layer when ``res_dim > 0``.
 
-    TBC
+    The family is designed so that, for the same ``img_dim`` and ``res_dim`` (I and R below; RX
+    and RY as in :class:`DUCLayerV5`), the shapes chain as follows::
 
-    This layer is supposed to be nearly an inverse of the Upsize2D layer.
+        DownsizeX2D: (B, H,   W,   I+R ) -> (B, H,   W/2, I+RX)
+        DownsizeY2D: (B, H,   W/2, I+RX) -> (B, H/2, W/2, I+RY)
+        UpsizeY2D:   (B, H/2, W/2, I+RY) -> (B, H,   W/2, I+RX)
+        UpsizeX2D:   (B, H,   W/2, I+RX) -> (B, H,   W,   I+R )
 
-    Input dimensionality consists of image dimensionality and residual dimensionality.
+    Dimensions marked ``/2`` must be even for the downsizing layers. When ``res_dim == 0``,
+    ``RX = RY = img_dim``.
+
+    Input shape
+    -----------
+    ``(B, H, W, img_dim + RX)`` with even ``H``.
+
+    Output shape
+    ------------
+    ``(B, H // 2, W, img_dim + RY)``
 
     Parameters
     ----------
     img_dim : int
-        the image dimensionality
+        the image dimensionality, i.e. the number of leading channels that are averaged
     res_dim : int
-        the residual dimensionality
-    kernel_size : int or tuple or list
+        the residual dimensionality, i.e. the number of the remaining input channels
+    kernel_size : int or tuple or list, optional
         An integer or tuple/list of 2 integers, specifying the height and width of the 2D
         convolution window. Can be a single integer to specify the same value for all spatial
-        dimensions.
-    kernel_initializer : object
-        Initializer for the convolutional kernels.
-    bias_initializer : object
-        Initializer for the convolutional biases.
-    kernel_regularizer : object
-        Regularizer for the convolutional kernels.
-    bias_regularizer : object
-        Regularizer for the convolutional biases.
-    kernel_constraint: object
-        Contraint function applied to the convolutional layer kernels.
-    bias_constraint: object
-        Contraint function applied to the convolutional layer biases.
+        dimensions. Defaults to 1.
+    kernel_initializer : str or object, optional
+        Initializer for the convolutional kernels. Defaults to ``"glorot_uniform"``.
+    bias_initializer : str or object, optional
+        Initializer for the convolutional biases. Defaults to ``"zeros"``.
+    kernel_regularizer : str or object, optional
+        Regularizer for the convolutional kernels. Defaults to None.
+    bias_regularizer : str or object, optional
+        Regularizer for the convolutional biases. Defaults to None.
+    kernel_constraint : str or object, optional
+        Constraint function applied to the convolutional layer kernels. Defaults to None.
+    bias_constraint : str or object, optional
+        Constraint function applied to the convolutional layer biases. Defaults to None.
+    **kwargs : dict
+        keyword arguments passed as-is to :class:`keras.layers.Layer` (e.g. ``name``)
+
+    See Also
+    --------
+    :class:`DownsizeX2D`, :class:`UpsizeY2D`, :class:`Downsize2D_V3`
     """
 
     def __init__(
@@ -1440,6 +1720,7 @@ class DownsizeY2D(DUCLayerV5):
         )
 
     def call(self, x, training: bool = False):
+        """Halves the height of `x`, shape ``(B, H, W, I+RX)`` to ``(B, H//2, W, I+RY)``."""
         # shape
         input_shape = ops.shape(x)
         B = input_shape[0]
@@ -1468,38 +1749,61 @@ class DownsizeY2D(DUCLayerV5):
 
 
 class UpsizeY2D(DUCLayerV5):
-    """Downsizing along the x-axis and the y-axis using convolutions of residuals.
+    """Upsizing along the y-axis (the height) only, using convolutions of residuals.
 
-    Downsizing means halving the width and the height and doubling the number of channels.
+    This layer doubles the *height* and does not change the width. A sub-network predicts, from
+    the whole input (expected to have ``img_dim + RY`` channels), a residual ``d`` (``img_dim +
+    RX`` channels, tanh) and extra residual channels (``RX`` channels, sigmoid). The average ``a``
+    is the first ``img_dim`` input channels concatenated with the extra channels; the two output
+    pixels are ``a + d`` and ``a - d``, interleaved along the height.
 
-    TBC
+    The family is designed so that, for the same ``img_dim`` and ``res_dim`` (I and R below; RX
+    and RY as in :class:`DUCLayerV5`), the shapes chain as follows::
 
-    This layer is supposed to be nearly an inverse of the Upsize2D layer.
+        DownsizeX2D: (B, H,   W,   I+R ) -> (B, H,   W/2, I+RX)
+        DownsizeY2D: (B, H,   W/2, I+RX) -> (B, H/2, W/2, I+RY)
+        UpsizeY2D:   (B, H/2, W/2, I+RY) -> (B, H,   W/2, I+RX)
+        UpsizeX2D:   (B, H,   W/2, I+RX) -> (B, H,   W,   I+R )
 
-    Input dimensionality consists of image dimensionality and residual dimensionality.
+    Dimensions marked ``/2`` must be even for the downsizing layers. When ``res_dim == 0``,
+    ``RX = RY = img_dim``.
+
+    Input shape
+    -----------
+    ``(B, H, W, img_dim + RY)``
+
+    Output shape
+    ------------
+    ``(B, 2 * H, W, img_dim + RX)``
 
     Parameters
     ----------
     img_dim : int
-        the image dimensionality
+        the image dimensionality, i.e. the number of leading channels that are averaged
     res_dim : int
-        the residual dimensionality
-    kernel_size : int or tuple or list
+        the residual dimensionality, i.e. the number of the remaining input channels
+    kernel_size : int or tuple or list, optional
         An integer or tuple/list of 2 integers, specifying the height and width of the 2D
         convolution window. Can be a single integer to specify the same value for all spatial
-        dimensions.
-    kernel_initializer : object
-        Initializer for the convolutional kernels.
-    bias_initializer : object
-        Initializer for the convolutional biases.
-    kernel_regularizer : object
-        Regularizer for the convolutional kernels.
-    bias_regularizer : object
-        Regularizer for the convolutional biases.
-    kernel_constraint: object
-        Contraint function applied to the convolutional layer kernels.
-    bias_constraint: object
-        Contraint function applied to the convolutional layer biases.
+        dimensions. Defaults to 3.
+    kernel_initializer : str or object, optional
+        Initializer for the convolutional kernels. Defaults to ``"glorot_uniform"``.
+    bias_initializer : str or object, optional
+        Initializer for the convolutional biases. Defaults to ``"zeros"``.
+    kernel_regularizer : str or object, optional
+        Regularizer for the convolutional kernels. Defaults to None.
+    bias_regularizer : str or object, optional
+        Regularizer for the convolutional biases. Defaults to None.
+    kernel_constraint : str or object, optional
+        Constraint function applied to the convolutional layer kernels. Defaults to None.
+    bias_constraint : str or object, optional
+        Constraint function applied to the convolutional layer biases. Defaults to None.
+    **kwargs : dict
+        keyword arguments passed as-is to :class:`keras.layers.Layer` (e.g. ``name``)
+
+    See Also
+    --------
+    :class:`DownsizeY2D`, :class:`UpsizeX2D`
     """
 
     def __init__(
@@ -1571,6 +1875,7 @@ class UpsizeY2D(DUCLayerV5):
         )
 
     def call(self, x, training: bool = False):
+        """Doubles the height of `x`, shape ``(B, H, W, I+RY)`` to ``(B, 2H, W, I+RX)``."""
         # shape
         input_shape = ops.shape(x)
         B = input_shape[0]

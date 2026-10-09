@@ -39,6 +39,15 @@ class MTTransformerEncoder(layers.Layer):
         **kwargs: other keyword arguments passed to `keras.layers.Layer`,
             including `name`, `trainable`, `dtype` etc.
 
+    Input shape:
+        ``(batch_size, sequence_length, hidden_dim)``. ``hidden_dim`` must be at least
+        `num_heads` (else a ``ValueError`` is raised at build time); the attention ``key_dim``
+        is ``hidden_dim // num_heads``.
+
+    Output shape:
+        Same as the input shape. With ``return_attention_scores=True`` in :meth:`call`, a tuple
+        ``(output, attention_scores)`` is returned.
+
     Example:
 
     ```python
@@ -84,6 +93,14 @@ class MTTransformerEncoder(layers.Layer):
         self.supports_masking = True
 
     def build(self, inputs_shape):
+        """Creates the attention, normalisation, dense and dropout sublayers.
+
+        Args:
+            inputs_shape: shape of the inputs, ``(batch_size, sequence_length, hidden_dim)``.
+
+        Raises:
+            ValueError: if ``hidden_dim // num_heads`` is zero.
+        """
         # Infer the dimension of our hidden feature size from the build shape.
         hidden_dim = inputs_shape[-1]
         # Attention head size is `hidden_dim` over the number of heads.
@@ -178,7 +195,8 @@ class MTTransformerEncoder(layers.Layer):
                 `attention_output` if `False`. Defaults to `False`.
 
         Returns:
-            A Tensor of the same shape as the `inputs`.
+            A Tensor of the same shape as the `inputs`, or a tuple
+            `(output, attention_scores)` when `return_attention_scores` is `True`.
         """
         x = inputs  # Intermediate result.
 
@@ -223,6 +241,7 @@ class MTTransformerEncoder(layers.Layer):
         return x
 
     def get_config(self):
+        """Returns the layer config (all constructor arguments, in serialised form)."""
         config = super().get_config()
         config.update(
             {
@@ -243,4 +262,5 @@ class MTTransformerEncoder(layers.Layer):
         return config
 
     def compute_output_shape(self, inputs_shape):
+        """Returns `inputs_shape` unchanged."""
         return inputs_shape

@@ -346,7 +346,7 @@ class MHAPool2D(layers.Layer):
             self.layer_pool = layers.AveragePooling2D()
         else:
             raise base_model.ModelSyntaxError(
-                "Invalid pooling string: '{}'.".format(self._pooling)
+                f"Invalid pooling string: '{self._pooling}'."
             )
 
         self.layer_query_proj = layers.Conv2D(

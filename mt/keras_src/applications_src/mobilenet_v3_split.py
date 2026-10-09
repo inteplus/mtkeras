@@ -375,12 +375,12 @@ def MobileNetV3Mixer(
                 outputs = [x]
     else:
         raise base_model.ModelSyntaxError(
-            "Unknown mixer variant: '{}'.".format(params.variant)
+            f"Unknown mixer variant: '{params.variant}'."
         )
 
     # Create model.
     model = models.Model(
-        input_tensor, outputs, name="MobileNetV3{}Mixer".format(model_type)
+        input_tensor, outputs, name=f"MobileNetV3{model_type}Mixer"
     )
 
     return model

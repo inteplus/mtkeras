@@ -154,7 +154,7 @@ class Upsize2D(DUCLayer):
 
         if input_dim & 1 != 0:
             raise ValueError(
-                "Input dimensionality must be even. Got {}.".format(input_dim)
+                f"Input dimensionality must be even. Got {input_dim}."
             )
 
         self._input_dim = input_dim
@@ -237,14 +237,12 @@ class Upsize2D(DUCLayer):
     def compute_output_shape(self, input_shape):
         if len(input_shape) != 4:
             raise ValueError(
-                "Expected input shape to be (B, H, W, C). Got: {}.".format(input_shape)
+                f"Expected input shape to be (B, H, W, C). Got: {input_shape}."
             )
 
         if input_shape[3] != self._input_dim:
             raise ValueError(
-                "The input dim must be {}. Got {}.".format(
-                    self._input_dim, input_shape[3]
-                )
+                f"The input dim must be {self._input_dim}. Got {input_shape[3]}."
             )
 
         output_shape = (
@@ -408,20 +406,18 @@ class Downsize2D(DUCLayer):
     def compute_output_shape(self, input_shape):
         if len(input_shape) != 4:
             raise ValueError(
-                "Expected input shape to be (B, H, W, C). Got: {}.".format(input_shape)
+                f"Expected input shape to be (B, H, W, C). Got: {input_shape}."
             )
 
         if input_shape[1] % 2 != 0:
-            raise ValueError("The height must be even. Got {}.".format(input_shape[1]))
+            raise ValueError(f"The height must be even. Got {input_shape[1]}.")
 
         if input_shape[2] % 2 != 0:
-            raise ValueError("The width must be even. Got {}.".format(input_shape[2]))
+            raise ValueError(f"The width must be even. Got {input_shape[2]}.")
 
         if input_shape[3] != self._input_dim:
             raise ValueError(
-                "The input dim must be {}. Got {}.".format(
-                    self._input_dim, input_shape[3]
-                )
+                f"The input dim must be {self._input_dim}. Got {input_shape[3]}."
             )
 
         output_shape = (
@@ -588,20 +584,18 @@ class Downsize2D_V2(DUCLayer):
     def compute_output_shape(self, input_shape):
         if len(input_shape) != 4:
             raise ValueError(
-                "Expected input shape to be (B, H, W, C). Got: {}.".format(input_shape)
+                f"Expected input shape to be (B, H, W, C). Got: {input_shape}."
             )
 
         if input_shape[1] % 2 != 0:
-            raise ValueError("The height must be even. Got {}.".format(input_shape[1]))
+            raise ValueError(f"The height must be even. Got {input_shape[1]}.")
 
         if input_shape[2] % 2 != 0:
-            raise ValueError("The width must be even. Got {}.".format(input_shape[2]))
+            raise ValueError(f"The width must be even. Got {input_shape[2]}.")
 
         if input_shape[3] != self._img_dim + self._res_dim:
             raise ValueError(
-                "The input dim must be {}. Got {}.".format(
-                    self._img_dim + self._res_dim, input_shape[3]
-                )
+                f"The input dim must be {self._img_dim + self._res_dim}. Got {input_shape[3]}."
             )
 
         output_shape = (
@@ -697,7 +691,7 @@ class Upsize2D_V2(DUCLayer):
         input_dim = img_dim + res_dim
         if input_dim & 1 != 0:
             raise ValueError(
-                "Image dimensionality must be even. Got {}.".format(input_dim)
+                f"Image dimensionality must be even. Got {input_dim}."
             )
 
         self._img_dim = img_dim
@@ -771,14 +765,12 @@ class Upsize2D_V2(DUCLayer):
     def compute_output_shape(self, input_shape):
         if len(input_shape) != 4:
             raise ValueError(
-                "Expected input shape to be (B, H, W, C). Got: {}.".format(input_shape)
+                f"Expected input shape to be (B, H, W, C). Got: {input_shape}."
             )
 
         if input_shape[3] != (self._img_dim + self._res_dim):
             raise ValueError(
-                "The input dim must be {}. Got {}.".format(
-                    (self._img_dim + self._res_dim), input_shape[3]
-                )
+                f"The input dim must be {self._img_dim + self._res_dim}. Got {input_shape[3]}."
             )
 
         output_shape = (
@@ -981,20 +973,18 @@ class Downsize2D_V3(DUCLayer):
     def compute_output_shape(self, input_shape):
         if len(input_shape) != 4:
             raise ValueError(
-                "Expected input shape to be (B, H, W, C). Got: {}.".format(input_shape)
+                f"Expected input shape to be (B, H, W, C). Got: {input_shape}."
             )
 
         if input_shape[1] % 2 != 0:
-            raise ValueError("The height must be even. Got {}.".format(input_shape[1]))
+            raise ValueError(f"The height must be even. Got {input_shape[1]}.")
 
         if input_shape[2] % 2 != 0:
-            raise ValueError("The width must be even. Got {}.".format(input_shape[2]))
+            raise ValueError(f"The width must be even. Got {input_shape[2]}.")
 
         if input_shape[3] != self._img_dim + self._res_dim:
             raise ValueError(
-                "The input dim must be {}. Got {}.".format(
-                    self._img_dim + self._res_dim, input_shape[3]
-                )
+                f"The input dim must be {self._img_dim + self._res_dim}. Got {input_shape[3]}."
             )
 
         output_shape = (

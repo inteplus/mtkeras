@@ -9,6 +9,8 @@ setup(
     name="mtkeras",
     description="Keras packages that depend on mttf, for Minh-Tri Pham",
     author="Minh-Tri Pham",
+    license="MIT",
+    license_files=["LICENSE"],
     packages=find_namespace_packages(include=["mt.keras*", "mt.keras_src*"]),
     install_requires=[
         "pyyaml",

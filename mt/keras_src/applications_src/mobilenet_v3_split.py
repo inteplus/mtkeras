@@ -392,8 +392,9 @@ def MobileNetV3Mixer(
 
     Notes
     -----
-    In ``"mhapool"`` the per-block ``activation`` is computed but not passed to
-    :class:`~mt.keras.layers.MHAPool2D` (which uses its own default).
+    In ``"mhapool"``, the ``activation`` and ``final_activation`` fields of
+    `mhapool_cascade_params` are accepted and serialised but have no effect:
+    :class:`~mt.keras.layers.MHAPool2D` always uses its own default activation.
     """
 
     x = input_tensor
@@ -480,10 +481,6 @@ def MobileNetV3Mixer(
                 )(x)
             else:  # MHAPool2D
                 x = layers.LayerNormalization()(x)
-                if h <= 2 and w <= 2:
-                    activation = mhapool_params.final_activation
-                else:
-                    activation = mhapool_params.activation
                 x = MHAPool2D(
                     n_heads,
                     key_dim,
@@ -603,8 +600,7 @@ def MobileNetV3Split(
 
         Defaults to 1.0.
     model_type : {'Small', 'Large'}, optional
-        whether it is the small variant or the large variant. Any value other than ``'Large'``
-        is treated as ``'Small'``. Defaults to ``'Large'``.
+        whether it is the small variant or the large variant. Defaults to ``'Large'``.
     max_n_blocks : int, optional
         the maximum number of blocks in the backbone. It is further constrained by the actual
         maximum number of blocks that the variant can implement (5 for Large, 4 for Small).
@@ -657,8 +653,8 @@ def MobileNetV3Split(
     Raises
     ------
     mt.base.model.ModelSyntaxError
-        if `mixer_params` is not None and not a ``MobileNetV3MixerParams``, or other errors
-        from :func:`MobileNetV3Input`
+        if `model_type` is neither ``'Small'`` nor ``'Large'``, if `mixer_params` is not None and
+        not a ``MobileNetV3MixerParams``, or other errors from :func:`MobileNetV3Input`
 
     Examples
     --------
@@ -670,6 +666,11 @@ def MobileNetV3Split(
        model = MobileNetV3Split((224, 224, 3), model_type="Small", max_n_blocks=3)
        model.summary()
     """
+
+    if model_type not in ("Small", "Large"):
+        raise base_model.ModelSyntaxError(
+            f"Argument 'model_type' must be 'Small' or 'Large'. Got: {model_type!r}."
+        )
 
     input_layer = MobileNetV3Input(input_shape=input_shape)
     input_block = MobileNetV3Parser(

@@ -54,6 +54,17 @@ class TestMixerVariants(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_KERAS, "keras is not installed")
+class TestSplitModelType(unittest.TestCase):
+    def test_invalid_model_type_raises(self):
+        from mt.base import model as base_model
+        from mt.keras_src.applications_src.mobilenet_v3_split import MobileNetV3Split
+
+        for bad in ("large", "Medium", None):
+            with self.assertRaises(base_model.ModelSyntaxError):
+                MobileNetV3Split((64, 64, 3), model_type=bad)
+
+
+@unittest.skipUnless(HAS_KERAS, "keras is not installed")
 class TestMHAPoolSize(unittest.TestCase):
     def test_pool_size_used(self):
         from mt import keras

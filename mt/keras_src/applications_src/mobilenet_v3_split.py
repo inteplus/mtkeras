@@ -328,9 +328,7 @@ def MobileNetV3Mixer(
         if not isinstance(mhapool_params, base_model.MHAPool2DCascadeParams):
             raise base_model.ModelSyntaxError(
                 "Parameter 'params.mhapool_cascade_params' is not of type "
-                "mt.base.model.MHAPool2DCascadeParams. Got: {}.".format(
-                    type(mhapool_params)
-                )
+                f"mt.base.model.MHAPool2DCascadeParams. Got: {type(mhapool_params)}."
             )
 
         from ..layers_src import MHAPool2D
@@ -528,9 +526,7 @@ def MobileNetV3Split(
         if not isinstance(mixer_params, base_model.MobileNetV3MixerParams):
             raise base_model.ModelSyntaxError(
                 "Argument 'mixer_params' is not an instance of "
-                "mt.base.model.MobileNetV3MixerParams. Got: {}.".format(
-                    type(mixer_params)
-                )
+                f"mt.base.model.MobileNetV3MixerParams. Got: {type(mixer_params)}."
             )
 
         if model_type == "Large":

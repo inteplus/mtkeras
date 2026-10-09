@@ -28,10 +28,10 @@ class CenterAround(constraints.Constraint):
         self.ref_value = ref_value
 
     def __call__(self, w):
-        """Returns `w` minus ``(mean(w, axis=-1) - ref_value)``, intended to center the last axis.
+        """Returns `w` minus ``(mean(w, axis=-1) - ref_value)``, centering the last axis.
 
-        The shift is computed as ``mean(w, axis=-1, keepdims=True) - ref_value`` and then given an
-        extra trailing axis (``expand_dims(-1)``) before being subtracted from `w`.
+        The shift is ``mean(w, axis=-1, keepdims=True) - ref_value``, which broadcasts against `w`
+        so that the output has the same shape as `w` and its last-axis mean equals `ref_value`.
 
         Parameters
         ----------
@@ -41,14 +41,10 @@ class CenterAround(constraints.Constraint):
         Returns
         -------
         tensor-like
-            the shifted tensor. Because of the extra ``expand_dims``, broadcasting adds a leading
-            axis for a 1D `w` (shape ``(n,)`` gives ``(1, n)``) and, for ND `w` with N > 1, a
-            result of a larger shape than `w`; the values are only meaningful for 1D weights up to
-            this reshaping.
+            the shifted tensor, of the same shape as `w`
         """
         mean = ops.reduce_mean(w, axis=-1, keepdims=True)
         ref_mean = mean - self.ref_value
-        ref_mean = ops.expand_dims(ref_mean, -1)
         return w - ref_mean
 
     def get_config(self):

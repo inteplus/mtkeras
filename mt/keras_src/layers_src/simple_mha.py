@@ -297,9 +297,8 @@ class MHAPool2D(layers.Layer):
     pooling : {'max', 'avg'}, optional
         type of 2D pooling used to build the query grid. Defaults to ``'max'``.
     pool_size : int or tuple, optional
-        intended factors by which to downscale (vertical, horizontal). Defaults to ``(2, 2)``.
-        It is stored and serialised but currently NOT used: the pooling layer is always created
-        with its own default window of 2x2.
+        factors by which to downscale (vertical, horizontal), used as the window (and stride) of the
+        query pooling layer. Defaults to ``(2, 2)``.
     use_bias : bool, optional
         Whether the convolution layers use bias vectors/matrices. Defaults to True.
     activation : str or callable, optional
@@ -328,9 +327,9 @@ class MHAPool2D(layers.Layer):
 
     Notes
     -----
-    The spatial size is halved (``MaxPool2D``/``AveragePooling2D`` with the default ``"valid"``
-    padding, so odd sizes are floored). All constructor arguments are serialised by
-    :meth:`get_config`.
+    The spatial size is divided by `pool_size`, 2x2 by default (``MaxPool2D``/
+    ``AveragePooling2D`` with the default ``"valid"`` padding, so odd sizes are floored).
+    All constructor arguments are serialised by :meth:`get_config`.
 
     See Also
     --------
@@ -381,9 +380,9 @@ class MHAPool2D(layers.Layer):
         self._dropout = dropout
 
         if self._pooling == "max":
-            self.layer_pool = layers.MaxPool2D()
+            self.layer_pool = layers.MaxPool2D(pool_size=self._pool_size)
         elif self._pooling == "avg":
-            self.layer_pool = layers.AveragePooling2D()
+            self.layer_pool = layers.AveragePooling2D(pool_size=self._pool_size)
         else:
             raise base_model.ModelSyntaxError(
                 f"Invalid pooling string: '{self._pooling}'."

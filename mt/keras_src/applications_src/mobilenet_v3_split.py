@@ -392,10 +392,8 @@ def MobileNetV3Mixer(
 
     Notes
     -----
-    As written, only the ``"mhapool"`` variant assigns the ``outputs`` list passed to the model;
-    the ``"mobilenet"`` and ``"maxpool"`` variants end up with an unbound ``outputs`` variable
-    (``UnboundLocalError``). In ``"mhapool"`` the per-block ``activation`` is computed but not
-    passed to :class:`~mt.keras.layers.MHAPool2D`.
+    In ``"mhapool"`` the per-block ``activation`` is computed but not passed to
+    :class:`~mt.keras.layers.MHAPool2D` (which uses its own default).
     """
 
     x = input_tensor
@@ -442,8 +440,10 @@ def MobileNetV3Mixer(
             last_point_ch, kernel_size=1, padding="same", use_bias=True, name="Conv_2"
         )(x)
         x = activation(x)
+        outputs = [x]
     elif params.variant == "maxpool":
         x = layers.GlobalMaxPool2D()(x)
+        outputs = [x]
     elif params.variant == "mhapool":
         if backend.image_data_format() == "channels_first":
             raise base_model.ModelSyntaxError(

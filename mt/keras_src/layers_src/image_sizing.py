@@ -1,4 +1,5 @@
-"""Module involves upsizing and downsizing images in each axis individually using convolutions of residuals."""
+"""Module involves upsizing and downsizing images in each axis individually using convolutions of
+residuals."""
 
 from mt import tp, np
 from .. import layers, initializers, regularizers, constraints

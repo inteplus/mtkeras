@@ -14,7 +14,7 @@ setup(
     packages=find_namespace_packages(include=["mt.keras*", "mt.keras_src*"]),
     install_requires=[
         "pyyaml",
-        "mtbase>=4.34.0",  # to have the model param classes in mt.base.model
+        "mtbase>=4.34.2",  # to have the model param classes in mt.base.model
     ],
     url="https://github.com/inteplus/mtkeras",
     project_urls={
